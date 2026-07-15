@@ -5,14 +5,19 @@ const CONFIG_KEY = "app-config";
 export const DEFAULT_CONFIG: AppConfig = {
   paused: false,
   dailyCap: 15,
+  // Priority order: first term = highest priority. The queue drains
+  // higher-priority matches first.
   searchTerms: [
-    "analyst",
-    "research",
-    "strategy",
-    "writer",
-    "consultant",
-    "business intelligence",
+    "business analyst",
     "market research",
+    "research analyst",
+    "data analyst",
+    "researcher",
+    "content writer",
+    "writer",
+    "business intelligence",
+    "strategy",
+    "consultant",
   ],
   includeKeywords: [
     "analyst",

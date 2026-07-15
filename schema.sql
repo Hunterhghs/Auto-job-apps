@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   error TEXT,
   answers_json TEXT,                      -- answers submitted / AI-generated content
   screenshot_key TEXT,                    -- R2 key of confirmation screenshot
+  priority INTEGER NOT NULL DEFAULT 99,   -- search-term rank; lower applies first
   discovered_at TEXT NOT NULL DEFAULT (datetime('now')),
   applied_at TEXT
 );

@@ -40,3 +40,13 @@ export function filterJob(job: RawJob, config: AppConfig): FilterResult {
 
   return { pass: true };
 }
+
+/**
+ * Priority of a job = index of the first (highest-priority) search term its
+ * title matches. Lower is better; jobs matching no term rank last.
+ */
+export function termPriority(title: string, searchTerms: string[]): number {
+  const t = title.toLowerCase();
+  const idx = searchTerms.findIndex((term) => t.includes(term.toLowerCase()));
+  return idx === -1 ? searchTerms.length : idx;
+}

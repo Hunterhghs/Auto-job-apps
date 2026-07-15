@@ -9,7 +9,8 @@ import {
   finishRun,
 } from "../db";
 import { searchAllSources } from "./sources";
-import { filterJob } from "./filter";
+import { searchBrowserBoards } from "./sources/browser-boards";
+import { filterJob, termPriority } from "./filter";
 import { classifyAtsFromUrl, resolveApplyUrl } from "./classify";
 import { applyToJobs } from "./apply";
 
@@ -49,8 +50,24 @@ export async function runPipeline(
     // discard everything else without storing it.
     const queueDepth = await queuedCount(env.DB);
     if (queueDepth < QUEUE_TARGET) {
+      // API-backed sources first; browser-driven boards (searched via the
+      // headless browser: keyword entry + remote filters) top up the rest
       const rawJobs = await searchAllSources(config.searchTerms);
-      const toInsert: (RawJob & { ats: AtsType; status: JobStatus; skipReason?: string })[] = [];
+      const browserJobs = await searchBrowserBoards(env.BROWSER, config.searchTerms).catch(
+        (err) => {
+          console.log(JSON.stringify({ event: "browser_discovery_failed", err: String(err) }));
+          return [];
+        }
+      );
+      rawJobs.push(...browserJobs);
+
+      // Highest-priority term matches get queued (and applied) first
+      rawJobs.sort(
+        (a, b) =>
+          termPriority(a.title, config.searchTerms) - termPriority(b.title, config.searchTerms)
+      );
+
+      const toInsert: (RawJob & { ats: AtsType; status: JobStatus; skipReason?: string; priority?: number })[] = [];
       let resolveBudget = RESOLVE_CAP;
       let queued = queueDepth;
 
@@ -59,6 +76,7 @@ export async function runPipeline(
 
         const filter = filterJob(job, config);
         if (!filter.pass) continue; // discard - don't waste D1 rows on misses
+        const priority = termPriority(job.title, config.searchTerms);
 
         let ats = classifyAtsFromUrl(job.applyUrl ?? job.url);
         let applyUrl = job.applyUrl;
@@ -73,10 +91,10 @@ export async function runPipeline(
         }
 
         if (ats === "ashby" || ats === "greenhouse" || ats === "lever") {
-          toInsert.push({ ...job, applyUrl, ats, status: "queued" });
+          toInsert.push({ ...job, applyUrl, ats, status: "queued", priority });
           queued++;
         } else if (ats === "workable") {
-          toInsert.push({ ...job, applyUrl, ats, status: "needs_review", skipReason: "workable adapter pending" });
+          toInsert.push({ ...job, applyUrl, ats, status: "needs_review", skipReason: "workable adapter pending", priority });
         }
         // unknown ATS: discard silently - relevant-but-unapplyable jobs were
         // flooding the review queue; revisit when more adapters exist

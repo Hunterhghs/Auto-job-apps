@@ -23,7 +23,7 @@ export function canonicalUrl(url: string): string {
 /** Insert newly discovered jobs, ignoring duplicates. Returns count inserted. */
 export async function insertJobs(
   db: D1Database,
-  jobs: (RawJob & { ats: string; status: JobStatus; skipReason?: string })[]
+  jobs: (RawJob & { ats: string; status: JobStatus; skipReason?: string; priority?: number })[]
 ): Promise<number> {
   let inserted = 0;
   for (const job of jobs) {
@@ -31,8 +31,8 @@ export async function insertJobs(
     const result = await db
       .prepare(
         `INSERT OR IGNORE INTO jobs
-           (url_hash, url, apply_url, source, company, title, location, salary, ats, status, skip_reason)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           (url_hash, url, apply_url, source, company, title, location, salary, ats, status, skip_reason, priority)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         hash,
@@ -45,7 +45,8 @@ export async function insertJobs(
         job.salary ?? null,
         job.ats,
         job.status,
-        job.skipReason ?? null
+        job.skipReason ?? null,
+        job.priority ?? 99
       )
       .run();
     if (result.meta.changes > 0) inserted++;
@@ -71,7 +72,7 @@ export async function nextQueuedJobs(
     .prepare(
       `SELECT * FROM jobs
        WHERE status = 'queued' AND ats IN ('ashby', 'greenhouse', 'lever')
-       ORDER BY discovered_at ASC
+       ORDER BY priority ASC, discovered_at ASC
        LIMIT ?`
     )
     .bind(limit)
