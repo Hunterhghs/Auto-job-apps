@@ -30,16 +30,14 @@
     {
       "binding": "DB",
       "database_name": "auto-job-apps",
-      // Replace after running: wrangler d1 create auto-job-apps
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "database_id": "a6964841-b1c5-49ec-9c1d-0666f8ba9c69"
     }
   ],
 
   "kv_namespaces": [
     {
       "binding": "CONFIG",
-      // Replace after running: wrangler kv namespace create CONFIG
-      "id": "00000000000000000000000000000000"
+      "id": "e90a66d8e8694ee0b90b31a08cb71728"
     }
   ],
 
