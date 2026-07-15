@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Auto Job Apps — Dashboard</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="login" class="login-wrap hidden">
+    <form id="login-form" class="login-card">
+      <h1>Auto Job Apps</h1>
+      <p>Enter your passcode to view the dashboard.</p>
+      <input type="password" id="passcode" placeholder="Passcode" autocomplete="current-password" />
+      <button type="submit">Sign in</button>
+      <p id="login-error" class="error hidden">Invalid passcode</p>
+    </form>
+  </div>
+
+  <div id="app" class="hidden">
+    <header>
+      <div class="brand">
+        <span class="logo">◎</span>
+        <h1>Auto Job Apps</h1>
+      </div>
+      <div class="header-actions">
+        <span id="pause-badge" class="badge hidden">PAUSED</span>
+        <button id="run-now" class="btn secondary">Run now</button>
+        <button id="pause-toggle" class="btn">Pause</button>
+      </div>
+    </header>
+
+    <section class="stat-grid">
+      <div class="stat-card">
+        <span class="stat-label">Applied today</span>
+        <span class="stat-value"><span id="stat-today">–</span><span class="stat-sub">/ <span id="stat-cap">–</span></span></span>
+        <div class="progress"><div id="today-bar" class="progress-fill"></div></div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Total applied</span>
+        <span class="stat-value" id="stat-total">–</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Queued</span>
+        <span class="stat-value" id="stat-queued">–</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Needs review</span>
+        <span class="stat-value warn" id="stat-review">–</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Last run</span>
+        <span class="stat-value small" id="stat-lastrun">–</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Applications per day (30 days)</h2>
+      <div id="chart" class="chart"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Applications</h2>
+        <div class="filters">
+          <input type="search" id="search" placeholder="Search company or title…" />
+          <select id="status-filter">
+            <option value="">All statuses</option>
+            <option value="applied">Applied</option>
+            <option value="queued">Queued</option>
+            <option value="needs_review">Needs review</option>
+            <option value="skipped">Skipped</option>
+            <option value="failed">Failed</option>
+            <option value="dismissed">Dismissed</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Company</th><th>Role</th><th>Source</th><th>ATS</th>
+              <th>Status</th><th>Date</th><th>Detail</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="jobs-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Settings</h2>
+      <div class="settings">
+        <label>Daily cap
+          <input type="number" id="cfg-cap" min="1" max="50" />
+        </label>
+        <label>Include keywords (comma separated)
+          <textarea id="cfg-include" rows="2"></textarea>
+        </label>
+        <label>Exclude keywords (comma separated)
+          <textarea id="cfg-exclude" rows="2"></textarea>
+        </label>
+        <button id="cfg-save" class="btn">Save settings</button>
+        <span id="cfg-saved" class="saved hidden">Saved ✓</span>
+      </div>
+    </section>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

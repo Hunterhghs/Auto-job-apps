@@ -1,0 +1,112 @@
+{
+  "name": {
+    "full": "Hunter Hughes",
+    "first": "Hunter",
+    "last": "Hughes",
+    "preferredFirst": "Hunter",
+    "preferredLast": "Hughes",
+    "pronouns": "he/him"
+  },
+  "contact": {
+    "email": "hunterhughesr@outlook.com",
+    "phone": "+1 (919) 360-3499",
+    "location": "Chapel Hill, NC, United States",
+    "city": "Chapel Hill",
+    "state": "NC",
+    "country": "United States"
+  },
+  "links": {
+    "upwork": "https://www.upwork.com/freelancers/hunterhughes",
+    "website": "https://www.hheuristics.com",
+    "linkedin": ""
+  },
+  "headline": "Business Analyst | Founder & CEO, H Heuristics LLC (market research & advisory)",
+  "summary": "Results-driven Business Analyst and founder of a market research and advisory firm. Blends financial modeling, market sizing, and regulatory/policy analysis to support institutional investors, enterprise operators, and policymakers. 40+ client engagements ($30K+ earnings, Upwork Top Rated with 100% Job Success), 84+ published institutional market intelligence reports, and an economic advisory readership of ~2,100 subscribers.",
+  "experience": [
+    {
+      "title": "Founder & CEO",
+      "company": "H Heuristics LLC",
+      "start": "2025-10",
+      "end": null,
+      "location": "Chapel Hill, NC",
+      "highlights": [
+        "Published 84+ market intelligence reports on MarketResearch.com spanning software, energy, fintech, and infrastructure",
+        "Built an economic advisory Substack readership of ~2,100 subscribers",
+        "Executed a 5-state consumer lending regulatory review, federal criminal sentencing analysis, and a Vietnam manufacturing/tariff trade study"
+      ]
+    },
+    {
+      "title": "Business Analyst (Freelance)",
+      "company": "Upwork",
+      "start": "2024-09",
+      "end": null,
+      "location": "Remote",
+      "highlights": [
+        "Completed 40+ client engagements ($30K+ earnings) with 100% Job Success Score, 5.0 average rating, Top Rated status",
+        "Conducted audit-ready IP valuation supporting a ~$100K asset transfer",
+        "Performed statewide transportation funding analysis for the New Hampshire DOT"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "school": "Appalachian State University",
+      "degree": "BSBA in Management",
+      "year": "2024",
+      "notes": "GPA 3.75, Magna Cum Laude, Chancellor's List"
+    }
+  ],
+  "certifications": [
+    "CFI Business Intelligence & Data Analyst (BIDA)",
+    "CFI Financial Threat Intelligence Professional (FTIP)",
+    "SAS Statistical Business Analyst",
+    "Duke University: Strategy & Innovation for Agile Organizations"
+  ],
+  "skills": [
+    "Market Sizing",
+    "Competitive Intelligence",
+    "Financial Modeling & Valuation",
+    "Regulatory Research",
+    "Policy Analysis",
+    "Economic Impact Analysis",
+    "Excel",
+    "Statistics",
+    "BI & Data Visualization",
+    "AI-Assisted Research Workflows",
+    "Executive Technical Report Writing"
+  ],
+  "workAuthorization": {
+    "usCitizen": true,
+    "authorizedUS": true,
+    "requiresSponsorship": false,
+    "authorizedEU": false
+  },
+  "compensation": {
+    "salaryMinAnnualUSD": 40000,
+    "salaryMaxAnnualUSD": 110000,
+    "salaryDefaultAnswer": "$65,000 - $85,000, flexible depending on the full compensation package",
+    "hourlyMinUSD": 20,
+    "hourlyMaxUSD": 75,
+    "hourlyDefaultAnswer": "$35-50/hr depending on scope, flexible"
+  },
+  "eeo": {
+    "policy": "answer",
+    "race": "White",
+    "gender": "Male",
+    "sexualOrientation": "Heterosexual",
+    "pronouns": "he/him",
+    "veteran": "I am not a protected veteran",
+    "disability": "No, I do not have a disability",
+    "hispanicLatino": "No"
+  },
+  "documents": {
+    "resumeR2Key": "resume/Hunter_Hughes_Resume.pdf",
+    "resumeFileName": "Hunter_Hughes_Resume.pdf"
+  },
+  "preferences": {
+    "noticePeriod": "Available immediately",
+    "willingToRelocate": false,
+    "remoteOnly": true,
+    "howDidYouHear": "Job board"
+  }
+}

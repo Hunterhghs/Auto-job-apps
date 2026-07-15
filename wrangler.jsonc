@@ -1,0 +1,57 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "auto-job-apps",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+
+  // Pipeline runs every 30 minutes; internal jitter + daily budget keep
+  // actual application volume at 10-25/day spread across the day.
+  "triggers": {
+    "crons": ["*/30 * * * *"]
+  },
+
+  // Dashboard static site. API routes are handled by the Worker first.
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+
+  "browser": { "binding": "BROWSER" },
+  "ai": { "binding": "AI" },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "auto-job-apps",
+      // Replace after running: wrangler d1 create auto-job-apps
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ],
+
+  "kv_namespaces": [
+    {
+      "binding": "CONFIG",
+      // Replace after running: wrangler kv namespace create CONFIG
+      "id": "00000000000000000000000000000000"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      // Create with: wrangler r2 bucket create auto-job-apps
+      "bucket_name": "auto-job-apps"
+    }
+  ]
+
+  // Secrets (set with `wrangler secret put <NAME>`):
+  //   DASHBOARD_PASSCODE - passcode for the dashboard login
+  //   DEEPSEEK_API_KEY   - DeepSeek API key for AI answers & cover letters
+}

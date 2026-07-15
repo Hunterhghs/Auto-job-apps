@@ -1,0 +1,22 @@
+{
+  "name": "auto-job-apps",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Autonomous job application agent on Cloudflare Workers with a live dashboard",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "typecheck": "tsc --noEmit",
+    "db:schema:local": "wrangler d1 execute auto-job-apps --local --file=./schema.sql",
+    "db:schema:remote": "wrangler d1 execute auto-job-apps --remote --file=./schema.sql"
+  },
+  "dependencies": {
+    "@cloudflare/puppeteer": "^1.0.4",
+    "hono": "^4.8.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "wrangler": "^4.24.0"
+  }
+}
