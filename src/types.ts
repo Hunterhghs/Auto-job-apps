@@ -43,6 +43,7 @@ export interface JobRow {
 export interface AppConfig {
   paused: boolean;
   dailyCap: number;
+  searchTerms: string[];
   includeKeywords: string[];
   excludeKeywords: string[];
   salaryMinAnnual: number;

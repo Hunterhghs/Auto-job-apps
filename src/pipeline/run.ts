@@ -8,7 +8,7 @@ import {
   startRun,
   finishRun,
 } from "../db";
-import { fetchAllSources } from "./sources";
+import { searchAllSources } from "./sources";
 import { filterJob } from "./filter";
 import { classifyAtsFromUrl, resolveApplyUrl } from "./classify";
 import { applyToJobs } from "./apply";
@@ -23,7 +23,9 @@ export interface PipelineEnv {
 }
 
 /** Max applications attempted per 30-min run (spreads volume across the day). */
-const PER_RUN_CAP = 3;
+const PER_RUN_CAP = 5;
+/** Skip discovery entirely while this many jobs are already queued. */
+const QUEUE_TARGET = 20;
 /** Max listing URLs to resolve to ATS apply URLs per run (keeps runs fast). */
 const RESOLVE_CAP = 25;
 
@@ -42,44 +44,53 @@ export async function runPipeline(
   const runId = await startRun(env.DB, trigger);
 
   try {
-    // 1. DISCOVER: fetch sources, filter, resolve ATS, queue in D1
-    const rawJobs = await fetchAllSources();
-    const toInsert: (RawJob & { ats: AtsType; status: JobStatus; skipReason?: string })[] = [];
-    let resolveBudget = RESOLVE_CAP;
+    // 1. DISCOVER - only when the queue needs topping up. Search each source
+    // for the configured terms, keep only relevant + applyable jobs, and
+    // discard everything else without storing it.
+    const queueDepth = await queuedCount(env.DB);
+    if (queueDepth < QUEUE_TARGET) {
+      const rawJobs = await searchAllSources(config.searchTerms);
+      const toInsert: (RawJob & { ats: AtsType; status: JobStatus; skipReason?: string })[] = [];
+      let resolveBudget = RESOLVE_CAP;
+      let queued = queueDepth;
 
-    for (const job of rawJobs) {
-      const filter = filterJob(job, config);
-      if (!filter.pass) {
-        toInsert.push({ ...job, ats: "unknown", status: "skipped", skipReason: filter.reason });
-        continue;
-      }
+      for (const job of rawJobs) {
+        if (queued >= QUEUE_TARGET) break;
 
-      let ats = classifyAtsFromUrl(job.applyUrl ?? job.url);
-      let applyUrl = job.applyUrl;
+        const filter = filterJob(job, config);
+        if (!filter.pass) continue; // discard - don't waste D1 rows on misses
 
-      if (ats === "unknown" && resolveBudget > 0) {
-        resolveBudget--;
-        const resolved = await resolveApplyUrl(job.url);
-        if (resolved) {
-          ats = resolved.ats;
-          applyUrl = resolved.applyUrl;
+        let ats = classifyAtsFromUrl(job.applyUrl ?? job.url);
+        let applyUrl = job.applyUrl;
+
+        if (ats === "unknown" && resolveBudget > 0) {
+          resolveBudget--;
+          const resolved = await resolveApplyUrl(job.url);
+          if (resolved) {
+            ats = resolved.ats;
+            applyUrl = resolved.applyUrl;
+          }
         }
+
+        if (ats === "ashby" || ats === "greenhouse" || ats === "lever") {
+          toInsert.push({ ...job, applyUrl, ats, status: "queued" });
+          queued++;
+        } else if (ats === "workable") {
+          toInsert.push({ ...job, applyUrl, ats, status: "needs_review", skipReason: "workable adapter pending" });
+        }
+        // unknown ATS: discard silently - relevant-but-unapplyable jobs were
+        // flooding the review queue; revisit when more adapters exist
       }
 
-      if (ats === "unknown") {
-        toInsert.push({ ...job, ats, status: "needs_review", skipReason: "unsupported or undetected ATS" });
-      } else if (ats === "workable") {
-        // Workable adapter not built yet; park for manual review
-        toInsert.push({ ...job, applyUrl, ats, status: "needs_review", skipReason: "workable adapter pending" });
-      } else {
-        toInsert.push({ ...job, applyUrl, ats, status: "queued" });
-      }
+      stats.discovered = await insertJobs(env.DB, toInsert);
+      console.log(
+        JSON.stringify({ event: "discovery_done", fetched: rawJobs.length, inserted: stats.discovered, queueDepth: queued })
+      );
+    } else {
+      console.log(JSON.stringify({ event: "discovery_skipped", queueDepth }));
     }
 
-    stats.discovered = await insertJobs(env.DB, toInsert);
-    console.log(JSON.stringify({ event: "discovery_done", fetched: rawJobs.length, inserted: stats.discovered }));
-
-    // 2. APPLY: respect daily budget, apply to a small batch this run
+    // 2. APPLY - respect the daily budget, drain the queue in batches
     const appliedToday = await appliedTodayCount(env.DB);
     const remainingToday = Math.max(0, config.dailyCap - appliedToday);
     const batchSize = Math.min(PER_RUN_CAP, remainingToday);
@@ -113,4 +124,11 @@ export async function runPipeline(
   }
 
   return stats;
+}
+
+async function queuedCount(db: D1Database): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS n FROM jobs WHERE status = 'queued'`)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }

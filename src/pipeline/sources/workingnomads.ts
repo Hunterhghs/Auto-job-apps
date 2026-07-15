@@ -9,25 +9,20 @@ interface WorkingNomadsJob {
   description?: string;
 }
 
-const CATEGORIES = new Set([
-  "Marketing",
-  "Sales",
-  "Writing",
-  "Finance",
-  "Consulting",
-  "Management",
-  "Legal",
-  "Administration",
-]);
-
-export async function fetchWorkingNomads(): Promise<RawJob[]> {
+/** Working Nomads has no search API; keep only title matches on search terms. */
+export async function fetchWorkingNomads(searchTerms: string[]): Promise<RawJob[]> {
   const res = await fetch("https://www.workingnomads.com/api/exposed_jobs/", {
     headers: { "User-Agent": "auto-job-apps/1.0" },
   });
   if (!res.ok) return [];
   const data = (await res.json()) as WorkingNomadsJob[];
+  const terms = searchTerms.map((t) => t.toLowerCase());
+
   return data
-    .filter((j) => CATEGORIES.has(j.category_name))
+    .filter((j) => {
+      const title = j.title.toLowerCase();
+      return terms.some((t) => title.includes(t));
+    })
     .map((j) => ({
       url: j.url,
       source: "workingnomads",

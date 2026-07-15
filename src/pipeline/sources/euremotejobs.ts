@@ -1,18 +1,24 @@
 import type { RawJob } from "../../types";
 
 /**
- * euremotejobs.com runs WP Job Manager, which exposes an RSS feed of
- * listings. We parse the feed with regex (no DOM parser in Workers).
+ * euremotejobs.com runs WP Job Manager, which exposes an RSS feed that
+ * accepts a search_keywords param. We query per term and parse with regex
+ * (no DOM parser in Workers).
  */
-export async function fetchEuRemoteJobs(): Promise<RawJob[]> {
-  const res = await fetch("https://euremotejobs.com/?feed=job_feed", {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; auto-job-apps/1.0)" },
-  });
-  if (!res.ok) return [];
-  const xml = await res.text();
+export async function fetchEuRemoteJobs(searchTerms: string[]): Promise<RawJob[]> {
+  const feeds = await Promise.allSettled(
+    searchTerms.map((term) =>
+      fetch(
+        `https://euremotejobs.com/?feed=job_feed&search_keywords=${encodeURIComponent(term)}`,
+        { headers: { "User-Agent": "Mozilla/5.0 (compatible; auto-job-apps/1.0)" } }
+      ).then((res) => (res.ok ? res.text() : ""))
+    )
+  );
 
   const jobs: RawJob[] = [];
-  const items = xml.split("<item>").slice(1);
+  const items = feeds
+    .filter((f): f is PromiseFulfilledResult<string> => f.status === "fulfilled")
+    .flatMap((f) => f.value.split("<item>").slice(1));
   for (const item of items) {
     const title = extract(item, "title");
     const link = extract(item, "link");

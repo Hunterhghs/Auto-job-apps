@@ -173,6 +173,7 @@ $("#run-now").addEventListener("click", async () => {
 async function loadConfig() {
   const cfg = await api("/config");
   $("#cfg-cap").value = cfg.dailyCap;
+  $("#cfg-terms").value = cfg.searchTerms.join(", ");
   $("#cfg-include").value = cfg.includeKeywords.join(", ");
   $("#cfg-exclude").value = cfg.excludeKeywords.join(", ");
 }
@@ -183,6 +184,7 @@ $("#cfg-save").addEventListener("click", async () => {
     method: "PUT",
     body: JSON.stringify({
       dailyCap: parseInt($("#cfg-cap").value, 10) || 15,
+      searchTerms: parseList($("#cfg-terms").value),
       includeKeywords: parseList($("#cfg-include").value),
       excludeKeywords: parseList($("#cfg-exclude").value),
     }),

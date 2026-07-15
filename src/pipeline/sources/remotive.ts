@@ -10,13 +10,12 @@ interface RemotiveJob {
   job_type: string;
 }
 
-const CATEGORIES = ["marketing", "writing", "business", "finance-legal", "data"];
-
-export async function fetchRemotive(): Promise<RawJob[]> {
+/** Query Remotive's search endpoint per term instead of pulling full categories. */
+export async function fetchRemotive(searchTerms: string[]): Promise<RawJob[]> {
   const jobs: RawJob[] = [];
-  for (const category of CATEGORIES) {
+  for (const term of searchTerms) {
     const res = await fetch(
-      `https://remotive.com/api/remote-jobs?category=${category}&limit=50`,
+      `https://remotive.com/api/remote-jobs?search=${encodeURIComponent(term)}&limit=20`,
       { headers: { "User-Agent": "auto-job-apps/1.0" } }
     );
     if (!res.ok) continue;

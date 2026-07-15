@@ -5,6 +5,15 @@ const CONFIG_KEY = "app-config";
 export const DEFAULT_CONFIG: AppConfig = {
   paused: false,
   dailyCap: 15,
+  searchTerms: [
+    "analyst",
+    "research",
+    "strategy",
+    "writer",
+    "consultant",
+    "business intelligence",
+    "market research",
+  ],
   includeKeywords: [
     "analyst",
     "analytics",
