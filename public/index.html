@@ -23,65 +23,86 @@
       <div class="brand">
         <span class="logo">◎</span>
         <h1>Auto Job Apps</h1>
+        <span class="schedule-badge">Every 10–30 min</span>
       </div>
       <div class="header-actions">
         <span id="pause-badge" class="badge hidden">PAUSED</span>
-        <button id="run-now" class="btn secondary">Run now</button>
         <button id="pause-toggle" class="btn">Pause</button>
       </div>
     </header>
 
     <section class="stat-grid">
-      <div class="stat-card">
+      <div class="stat-card accent">
         <span class="stat-label">Applied today</span>
         <span class="stat-value"><span id="stat-today">–</span><span class="stat-sub">/ <span id="stat-cap">–</span></span></span>
         <div class="progress"><div id="today-bar" class="progress-fill"></div></div>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Next run</span>
+        <span class="stat-value small" id="stat-nextrun">–</span>
+        <span class="stat-hint" id="stat-nextcountdown"></span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Last run</span>
+        <span class="stat-value small" id="stat-lastrun">–</span>
+        <span class="stat-hint" id="stat-lastresult"></span>
       </div>
       <div class="stat-card">
         <span class="stat-label">Total applied</span>
         <span class="stat-value" id="stat-total">–</span>
       </div>
       <div class="stat-card">
-        <span class="stat-label">Queued</span>
-        <span class="stat-value" id="stat-queued">–</span>
-      </div>
-      <div class="stat-card">
         <span class="stat-label">Needs review</span>
         <span class="stat-value warn" id="stat-review">–</span>
       </div>
-      <div class="stat-card">
-        <span class="stat-label">Last run</span>
-        <span class="stat-value small" id="stat-lastrun">–</span>
-      </div>
-    </section>
-
-    <section class="panel">
-      <h2>Applications per day (30 days)</h2>
-      <div id="chart" class="chart"></div>
     </section>
 
     <section class="panel">
       <div class="panel-head">
-        <h2>Applications</h2>
-        <div class="filters">
-          <input type="search" id="search" placeholder="Search company or title…" />
-          <select id="status-filter">
-            <option value="">All statuses</option>
-            <option value="applied">Applied</option>
-            <option value="queued">Queued</option>
-            <option value="needs_review">Needs review</option>
-            <option value="skipped">Skipped</option>
-            <option value="failed">Failed</option>
-            <option value="dismissed">Dismissed</option>
-          </select>
-        </div>
+        <h2>Today's Intervals</h2>
+        <span class="interval-legend">
+          <span class="dot applied"></span> Applied
+          <span class="dot skipped"></span> Skipped
+          <span class="dot pending"></span> Upcoming
+        </span>
+      </div>
+      <div id="timeline" class="timeline"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Queue Board <span style="font-weight:400;color:var(--muted);font-size:0.75rem;">— today's available jobs</span></h2>
+        <span id="queue-count" class="badge" style="background:rgba(79,140,255,0.15);color:var(--accent);">– jobs</span>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Company</th><th>Role</th><th>Source</th><th>ATS</th>
-              <th>Status</th><th>Date</th><th>Detail</th><th></th>
+              <th>Company</th><th>Role</th><th>Source</th><th>ATS</th><th>Location</th>
+            </tr>
+          </thead>
+          <tbody id="queue-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Company Watchlist <span style="font-weight:400;color:var(--muted);font-size:0.75rem;">— 125+ direct ATS sources</span></h2>
+        <span id="watchlist-stats" style="font-size:0.8rem;color:var(--muted);"></span>
+      </div>
+      <div id="watchlist-grid" class="watchlist-grid"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Recent Activity</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th><th>Company</th><th>Role</th><th>Result</th><th>Detail</th>
             </tr>
           </thead>
           <tbody id="jobs-body"></tbody>
@@ -90,12 +111,14 @@
     </section>
 
     <section class="panel">
-      <h2>Settings</h2>
+      <div class="panel-head">
+        <h2>Settings</h2>
+      </div>
       <div class="settings">
         <label>Daily cap
           <input type="number" id="cfg-cap" min="1" max="50" />
         </label>
-        <label>Search terms — highest priority first; queried on every job board (comma separated)
+        <label>Search terms — priority order, comma separated
           <textarea id="cfg-terms" rows="2"></textarea>
         </label>
         <label>Include keywords (comma separated)

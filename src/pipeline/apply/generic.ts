@@ -35,11 +35,31 @@ export async function fillAndSubmit(
     return { status: "needs_review", reason: "CAPTCHA present" };
   }
 
-  const fields = await inspectForm(page);
+  let fields = await inspectForm(page);
   if (fields.length === 0) {
-    return { status: "needs_review", reason: "no form fields found" };
+    // Many platforms (BambooHR, some ATS configs) hide the form behind an
+    // "Apply" button. Click it first, then re-inspect.
+    const clicked = await clickApplyButton(page);
+    if (!clicked) {
+      return { status: "needs_review", reason: "no form fields found" };
+    }
+    await sleep(3000);
+    fields = await inspectForm(page);
+    if (fields.length === 0) {
+      return { status: "needs_review", reason: "no form fields after clicking apply" };
+    }
   }
 
+  return doFillAndSubmit(page, env, job, fields);
+}
+
+/** Fill all discovered fields, submit, and confirm. */
+async function doFillAndSubmit(
+  page: Page,
+  env: ApplierEnv,
+  job: JobRow,
+  fields: FormField[]
+): Promise<ApplyResult> {
   const known = knownAnswers(profile);
   const answers: Record<string, string> = {};
   const jobContext = {
@@ -119,7 +139,23 @@ async function fillField(
     case "file": {
       const isResume = /resume|cv/i.test(label) || label === "";
       const isCover = /cover/i.test(label);
-      if (isCover && !isResume) return true; // cover letters go in textareas when offered; file upload optional
+
+      if (isCover && !isResume) {
+        // Upload the cover letter PDF from R2
+        const coverObj = await env.FILES.get("cover-letter/hunter_hughes_cover_letter.pdf");
+        if (coverObj) {
+          const coverBytes = await coverObj.arrayBuffer();
+          const ok = await uploadFileToInput(page, field.selector, coverBytes, "Hunter_Hughes_Cover_Letter.pdf", "application/pdf");
+          if (ok) {
+            answers[field.label || "cover letter"] = "Hunter_Hughes_Cover_Letter.pdf";
+            await sleep(jitter(1000, 2000));
+          }
+          return ok;
+        }
+        return true; // Soft skip if cover letter PDF not in R2
+      }
+
+      // Resume upload
       const resumeObj = await env.FILES.get(profile.documents.resumeR2Key);
       if (!resumeObj) throw new Error("resume missing from R2");
       const bytes = await resumeObj.arrayBuffer();
@@ -138,6 +174,38 @@ async function fillField(
 
     case "text":
     case "textarea": {
+      // Handle specialized input types (date, number) that browsers treat differently
+      if (field.type === "text") {
+        const htmlType = await page.evaluate((sel) => {
+          const el = document.querySelector(sel) as HTMLInputElement | null;
+          return el?.type ?? "text";
+        }, field.selector);
+        
+        if (htmlType === "date") {
+          const dateVal = matchDate(label);
+          if (dateVal) {
+            await page.evaluate((sel, v) => {
+              const el = document.querySelector(sel) as HTMLInputElement | null;
+              if (el) { el.value = v; el.dispatchEvent(new Event("change", { bubbles: true })); }
+            }, field.selector, dateVal);
+            answers[field.label] = dateVal;
+            return true;
+          }
+        }
+        
+        if (htmlType === "number") {
+          const numVal = matchNumber(label);
+          if (numVal !== null) {
+            await page.evaluate((sel, v) => {
+              const el = document.querySelector(sel) as HTMLInputElement | null;
+              if (el) { el.value = String(v); el.dispatchEvent(new Event("change", { bubbles: true })); }
+            }, field.selector, numVal);
+            answers[field.label] = String(numVal);
+            return true;
+          }
+        }
+      }
+
       let value = matchKnown(label, known);
       if (!value && /cover letter/i.test(label)) {
         value = await coverLetter(env, jobContext);
@@ -279,6 +347,31 @@ function matchOption(
   return undefined;
 }
 
+/** Provide a date value for date input fields based on the label. */
+function matchDate(label: string): string | null {
+  const today = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const fmt = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+  if (/start|available|notice/i.test(label)) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + 14);
+    return fmt(d);
+  }
+  if (/graduation|grad date/i.test(label)) return "2024-05-01";
+  return fmt(today);
+}
+
+/** Provide a numeric value for number inputs based on the label. */
+function matchNumber(label: string): number | null {
+  if (/years.*experience|experience.*years/i.test(label)) return 2;
+  if (/salary|compensation/.test(label)) {
+    if (/hour/i.test(label)) return 40;
+    return 75000;
+  }
+  return null;
+}
+
 async function clickSubmit(page: Page): Promise<boolean> {
   const selector = await page.evaluate(() => {
     const candidates = [
@@ -296,4 +389,24 @@ async function clickSubmit(page: Page): Promise<boolean> {
   if (!selector) return false;
   await page.click(selector);
   return true;
+}
+
+/** Click an "Apply" link or button when the form is hidden behind it. */
+async function clickApplyButton(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const candidates = [
+      ...document.querySelectorAll(
+        'a[href], button, [role="button"]'
+      ),
+    ] as HTMLElement[];
+    const btn = candidates.find((el) => {
+      const text = (el.textContent ?? "").trim();
+      return /^apply/i.test(text) || /apply for this job/i.test(text) || /apply now/i.test(text);
+    });
+    if (btn) {
+      (btn as HTMLElement).click();
+      return true;
+    }
+    return false;
+  });
 }

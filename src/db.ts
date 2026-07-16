@@ -21,37 +21,33 @@ export function canonicalUrl(url: string): string {
 }
 
 /** Insert newly discovered jobs, ignoring duplicates. Returns count inserted. */
-export async function insertJobs(
+export async function insertJob(
   db: D1Database,
-  jobs: (RawJob & { ats: string; status: JobStatus; skipReason?: string; priority?: number })[]
+  job: RawJob & { ats: string; status: JobStatus; skipReason?: string; priority?: number }
 ): Promise<number> {
-  let inserted = 0;
-  for (const job of jobs) {
-    const hash = await sha256Hex(canonicalUrl(job.applyUrl ?? job.url));
-    const result = await db
-      .prepare(
-        `INSERT OR IGNORE INTO jobs
-           (url_hash, url, apply_url, source, company, title, location, salary, ats, status, skip_reason, priority)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        hash,
-        job.url,
-        job.applyUrl ?? null,
-        job.source,
-        job.company ?? null,
-        job.title,
-        job.location ?? null,
-        job.salary ?? null,
-        job.ats,
-        job.status,
-        job.skipReason ?? null,
-        job.priority ?? 99
-      )
-      .run();
-    if (result.meta.changes > 0) inserted++;
-  }
-  return inserted;
+  const hash = await sha256Hex(canonicalUrl(job.applyUrl ?? job.url));
+  const result = await db
+    .prepare(
+      `INSERT OR IGNORE INTO jobs
+         (url_hash, url, apply_url, source, company, title, location, salary, ats, status, skip_reason, priority)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      hash,
+      job.url,
+      job.applyUrl ?? null,
+      job.source,
+      job.company ?? null,
+      job.title,
+      job.location ?? null,
+      job.salary ?? null,
+      job.ats,
+      job.status,
+      job.skipReason ?? null,
+      job.priority ?? 99
+    )
+    .run();
+  return result.meta.last_row_id ?? 0;
 }
 
 export async function appliedTodayCount(db: D1Database): Promise<number> {

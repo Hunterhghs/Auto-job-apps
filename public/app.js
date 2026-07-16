@@ -1,8 +1,10 @@
-/* Auto Job Apps dashboard */
+/* Auto Job Apps — interval-based dashboard */
 
 const $ = (sel) => document.querySelector(sel);
+const INTERVAL_MIN = 10;
 
 let paused = false;
+let lastRunTime = null;
 
 async function api(path, opts = {}) {
   const res = await fetch(`/api${path}`, {
@@ -16,18 +18,10 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
-function showLogin() {
-  $("#login").classList.remove("hidden");
-  $("#app").classList.add("hidden");
-}
+function showLogin() { $("#login").classList.remove("hidden"); $("#app").classList.add("hidden"); }
+function showApp() { $("#login").classList.add("hidden"); $("#app").classList.remove("hidden"); }
 
-function showApp() {
-  $("#login").classList.add("hidden");
-  $("#app").classList.remove("hidden");
-}
-
-/* ---------- Login ---------- */
-
+/* ── Login ── */
 $("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const res = await fetch("/api/login", {
@@ -44,85 +38,117 @@ $("#login-form").addEventListener("submit", async (e) => {
   }
 });
 
-/* ---------- Stats ---------- */
-
+/* ── Stats & Timeline ── */
 async function loadStats() {
   const s = await api("/stats");
   paused = s.paused;
   $("#stat-today").textContent = s.appliedToday;
   $("#stat-cap").textContent = s.dailyCap;
   $("#stat-total").textContent = s.appliedTotal;
-  $("#stat-queued").textContent = s.byStatus.queued ?? 0;
   $("#stat-review").textContent = s.byStatus.needs_review ?? 0;
-  $("#today-bar").style.width =
-    Math.min(100, (s.appliedToday / Math.max(1, s.dailyCap)) * 100) + "%";
+  $("#today-bar").style.width = Math.min(100, (s.appliedToday / Math.max(1, s.dailyCap)) * 100) + "%";
   $("#pause-badge").classList.toggle("hidden", !s.paused);
   $("#pause-toggle").textContent = s.paused ? "Resume" : "Pause";
 
   if (s.lastRun) {
-    const when = new Date(s.lastRun.started_at + "Z").toLocaleString();
-    $("#stat-lastrun").textContent = `${when} · +${s.lastRun.applied} applied`;
+    lastRunTime = new Date(s.lastRun.started_at + "Z");
+    const when = lastRunTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    $("#stat-lastrun").textContent = when;
+    const result = s.lastRun.applied > 0
+      ? `✓ ${s.lastRun.applied} applied`
+      : s.lastRun.skipped > 0
+        ? `${s.lastRun.skipped} skipped`
+        : s.lastRun.failed > 0 ? "failed" : "idle";
+    $("#stat-lastresult").textContent = result;
   }
 
-  renderChart(s.daily);
+  renderTimeline(s);
+  updateNextRun();
 }
 
-function renderChart(daily) {
-  const chart = $("#chart");
-  chart.innerHTML = "";
-  if (!daily || daily.length === 0) {
-    chart.innerHTML = '<span class="empty">No applications yet — the chart will fill in as the bot works.</span>';
-    return;
-  }
-  const byDay = Object.fromEntries(daily.map((d) => [d.day, d.n]));
-  const days = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
-    days.push({ day: d, n: byDay[d] ?? 0 });
-  }
-  const max = Math.max(...days.map((d) => d.n), 1);
-  for (const d of days) {
-    const bar = document.createElement("div");
-    bar.className = "bar";
-    bar.style.height = Math.max(3, (d.n / max) * 100) + "%";
-    if (d.n === 0) bar.style.opacity = "0.25";
-    bar.dataset.tip = `${d.day}: ${d.n}`;
-    chart.appendChild(bar);
+function updateNextRun() {
+  if (!lastRunTime) { $("#stat-nextrun").textContent = "—"; return; }
+  const next = new Date(lastRunTime.getTime() + INTERVAL_MIN * 60 * 1000);
+  const now = new Date();
+  const diff = next - now;
+
+  if (diff <= 0) {
+    $("#stat-nextrun").textContent = "Due now";
+    $("#stat-nextcountdown").textContent = "waiting for cron…";
+  } else {
+    const mins = Math.floor(diff / 60000);
+    const secs = Math.floor((diff % 60000) / 1000);
+    $("#stat-nextrun").textContent = next.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    $("#stat-nextcountdown").textContent = `in ${mins}m ${secs}s`;
   }
 }
 
-/* ---------- Applications table ---------- */
+function renderTimeline(s) {
+  const timeline = $("#timeline");
+  timeline.innerHTML = "";
 
+  // Build map of hour:30-slot results from today's runs
+  const runs = s.recentRuns || [];
+  const slotMap = {};
+  for (const r of runs) {
+    const d = new Date(r.started_at + "Z");
+    const slot = `${String(d.getHours()).padStart(2, "0")}:${String(Math.floor(d.getMinutes() / 30) * 30).padStart(2, "0")}`;
+    const status = r.applied > 0 ? "applied" : r.skipped > 0 ? "skipped" : r.failed > 0 ? "failed" : "needs_review";
+    const tip = r.applied > 0
+      ? `✓ Applied` : r.skipped > 0 ? `${r.skipped} skipped` : r.failed > 0 ? `Failed` : "Ran";
+    slotMap[slot] = { status, tip, time: d };
+  }
+
+  // Show slots from 6am to 10pm (32 slots at 30-min intervals)
+  const now = new Date();
+  const currentSlot = `${String(now.getHours()).padStart(2, "0")}:${String(Math.floor(now.getMinutes() / 30) * 30).padStart(2, "0")}`;
+
+  for (let h = 6; h < 22; h++) {
+    for (let m of [0, 30]) {
+      const key = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      const slot = document.createElement("div");
+      slot.className = "interval-slot";
+
+      if (slotMap[key]) {
+        slot.classList.add(slotMap[key].status);
+        slot.dataset.tip = `${key} — ${slotMap[key].tip}`;
+      } else if (key < currentSlot) {
+        slot.dataset.tip = `${key} — idle`;
+      } else if (key === currentSlot) {
+        slot.classList.add("now");
+        slot.dataset.tip = `${key} — current interval`;
+      } else {
+        slot.classList.add("upcoming");
+        slot.dataset.tip = `${key} — upcoming`;
+      }
+      timeline.appendChild(slot);
+    }
+  }
+}
+
+/* ── Activity table ── */
 async function loadJobs() {
-  const status = $("#status-filter").value;
-  const q = $("#search").value.trim();
-  const params = new URLSearchParams();
-  if (status) params.set("status", status);
-  if (q) params.set("q", q);
-  const { applications } = await api(`/applications?${params}`);
-
+  const { applications } = await api("/applications?limit=15");
   const tbody = $("#jobs-body");
   tbody.innerHTML = "";
+
   for (const j of applications) {
     const tr = document.createElement("tr");
     const date = j.applied_at ?? j.discovered_at;
+    const time = date ? new Date(date + "Z").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
     const detail = j.skip_reason || j.error || "";
+    const statusClass = j.status === "applied" ? "applied"
+      : j.status === "skipped" || j.status === "needs_review" ? "needs_review"
+      : j.status === "failed" ? "failed" : "queued";
+
     tr.innerHTML = `
+      <td>${esc(time)}</td>
       <td>${esc(j.company ?? "—")}</td>
-      <td><a href="${esc(j.apply_url || j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a></td>
-      <td>${esc(j.source)}</td>
-      <td>${esc(j.ats ?? "—")}</td>
-      <td><span class="pill ${esc(j.status)}">${esc(j.status.replace("_", " "))}</span></td>
-      <td>${esc(date ? date.slice(0, 16) : "—")}</td>
+      <td>${esc(j.title)}</td>
+      <td><span class="pill ${esc(statusClass)}">${esc(j.status.replace("_", " "))}</span></td>
       <td>
         ${detail ? `<span class="reason">${esc(detail)}</span>` : ""}
-        ${j.screenshot_key ? `<a href="/api/screenshot/${esc(j.screenshot_key)}" target="_blank">screenshot</a>` : ""}
-      </td>
-      <td class="row-actions">
-        ${j.status === "needs_review" || j.status === "failed"
-          ? `<button data-act="requeue" data-id="${j.id}">Retry</button>
-             <button data-act="dismiss" data-id="${j.id}">Dismiss</button>`
-          : ""}
+        ${j.screenshot_key ? `<a href="/api/screenshot/${esc(j.screenshot_key)}" target="_blank" class="shot-link">screenshot</a>` : ""}
       </td>`;
     tbody.appendChild(tr);
   }
@@ -134,42 +160,57 @@ function esc(s) {
   })[c]);
 }
 
-$("#jobs-body").addEventListener("click", async (e) => {
-  const btn = e.target.closest("button[data-act]");
-  if (!btn) return;
-  await api(`/jobs/${btn.dataset.id}/${btn.dataset.act}`, { method: "POST" });
-  void loadJobs();
-  void loadStats();
-});
+/* ── Queue Board ── */
+async function loadQueueBoard() {
+  try {
+    const { jobs } = await api("/queue-board");
+    $("#queue-count").textContent = `${jobs.length} jobs`;
+    const tbody = $("#queue-body");
+    tbody.innerHTML = "";
+    for (const j of jobs) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${esc(j.company ?? "—")}</td>
+        <td>${esc(j.title)}</td>
+        <td>${esc(j.source)}</td>
+        <td>${esc(j.ats ?? "—")}</td>
+        <td>${esc(j.location ?? "—")}</td>`;
+      tbody.appendChild(tr);
+    }
+  } catch { /* skip if endpoint fails */ }
+}
 
-let searchTimer;
-$("#search").addEventListener("input", () => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => void loadJobs(), 300);
-});
-$("#status-filter").addEventListener("change", () => void loadJobs());
+/* ── Watchlist ── */
+async function loadWatchlist() {
+  try {
+    const { watchlist } = await api("/watchlist");
+    const grid = $("#watchlist-grid");
+    grid.innerHTML = "";
+    let total = 0;
+    for (const [ats, companies] of Object.entries(watchlist)) {
+      const label = document.createElement("div");
+      label.className = "watchlist-ats-label";
+      label.textContent = `${ats} (${companies.length})`;
+      grid.appendChild(label);
+      for (const c of companies) {
+        const tag = document.createElement("span");
+        tag.className = `watchlist-tag ${ats}`;
+        tag.textContent = c.slug;
+        grid.appendChild(tag);
+        total++;
+      }
+    }
+    $("#watchlist-stats").textContent = `${total} companies across ${Object.keys(watchlist).length} ATS platforms`;
+  } catch { /* skip if endpoint fails */ }
+}
 
-/* ---------- Controls ---------- */
-
+/* ── Controls ── */
 $("#pause-toggle").addEventListener("click", async () => {
   await api("/config", { method: "PUT", body: JSON.stringify({ paused: !paused }) });
   void loadStats();
 });
 
-$("#run-now").addEventListener("click", async () => {
-  const btn = $("#run-now");
-  btn.disabled = true;
-  btn.textContent = "Running…";
-  await api("/run", { method: "POST" });
-  setTimeout(() => {
-    btn.disabled = false;
-    btn.textContent = "Run now";
-    void refreshAll();
-  }, 15000);
-});
-
-/* ---------- Settings ---------- */
-
+/* ── Settings ── */
 async function loadConfig() {
   const cfg = await api("/config");
   $("#cfg-cap").value = cfg.dailyCap;
@@ -191,10 +232,10 @@ $("#cfg-save").addEventListener("click", async () => {
   });
   $("#cfg-saved").classList.remove("hidden");
   setTimeout(() => $("#cfg-saved").classList.add("hidden"), 2000);
+  void loadStats();
 });
 
-/* ---------- Boot ---------- */
-
+/* ── Boot ── */
 async function refreshAll() {
   await Promise.all([loadStats(), loadJobs(), loadConfig()]);
 }
@@ -209,6 +250,10 @@ async function refreshAll() {
   }
 })();
 
+// Refresh stats every 30s for countdown accuracy
 setInterval(() => {
-  if (!$("#app").classList.contains("hidden")) void loadStats();
-}, 60000);
+  if (!$("#app").classList.contains("hidden")) {
+    updateNextRun();
+    void loadStats();
+  }
+}, 30000);

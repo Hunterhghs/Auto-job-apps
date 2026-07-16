@@ -23,7 +23,7 @@ function toApplicationUrl(ats: AtsType | null, url: string): string {
 }
 
 const ATS_LINK =
-  /https?:\/\/(jobs\.ashbyhq\.com|boards\.greenhouse\.io|job-boards\.greenhouse\.io|grnh\.se|jobs\.(?:eu\.)?lever\.co|apply\.workable\.com)[^"'\s<>]*/i;
+  /https?:\/\/(jobs\.ashbyhq\.com|boards\.greenhouse\.io|job-boards\.greenhouse\.io|grnh\.se|jobs\.(?:eu\.)?lever\.co|apply\.workable\.com|[^"'\s<>]*\.breezy\.hr|(?:apply\.)?jazz\.co|jobs\.smartrecruiters\.com|[^"'\s<>]*\.bamboohr\.com|[^"'\s<>]*\.recruitee\.com|[^"'\s<>]*\.jobs\.personio\.com|[^"'\s<>]*\.teamtailor\.com)[^"'\s<>]*/i;
 
 /**
  * For listings where the ATS is unknown: load the board's job page in the
@@ -41,7 +41,7 @@ async function resolveInBrowser(
   // 0. Board redirect links (e.g. workingnomads.com/job/go/...) can land
   //    directly on the ATS page
   const landedAts = classifyAtsFromUrl(page.url());
-  if (landedAts !== "unknown" && landedAts !== "workable") {
+  if (landedAts !== "unknown") {
     return { ats: landedAts, url: page.url() };
   }
 
@@ -57,7 +57,7 @@ async function resolveInBrowser(
     const match = href.match(ATS_LINK);
     if (match) {
       const ats = classifyAtsFromUrl(match[0]);
-      if (ats !== "unknown" && ats !== "workable") return { ats, url: match[0] };
+      if (ats !== "unknown") return { ats, url: match[0] };
     }
   }
 
@@ -80,7 +80,7 @@ async function resolveInBrowser(
     await sleep(2000);
     const finalUrl = page.url();
     const ats = classifyAtsFromUrl(finalUrl);
-    if (ats !== "unknown" && ats !== "workable") return { ats, url: finalUrl };
+    if (ats !== "unknown") return { ats, url: finalUrl };
   } catch {
     return null;
   }
@@ -113,10 +113,11 @@ export async function applyToJobs(
         if (!ats || ats === "unknown") {
           resolved = await resolveInBrowser(page, job.url);
           if (!resolved) {
-            results.set(job.id, {
-              status: "needs_review",
-              reason: "could not reach an Ashby/Greenhouse/Lever form from listing",
-            });
+            // ATS resolution failed, but the page is already loaded. Try to
+            // fill the form on the current page — many boards embed the form
+            // directly on the listing or use non-standard ATS platforms.
+            const result = await fillAndSubmit(page, env, { ...job, ats: "unknown" });
+            results.set(job.id, result);
             continue;
           }
           ats = resolved.ats;

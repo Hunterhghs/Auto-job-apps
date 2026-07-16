@@ -7,12 +7,19 @@ export function classifyAtsFromUrl(url: string | undefined): AtsType {
   if (u.includes("greenhouse.io") || u.includes("grnh.se")) return "greenhouse";
   if (u.includes("lever.co")) return "lever";
   if (u.includes("workable.com")) return "workable";
+  if (u.includes("breezy.hr")) return "breezy";
+  if (u.includes("jazz.co")) return "jazzhr";
+  if (u.includes("smartrecruiters.com")) return "smartrecruiters";
+  if (u.includes("bamboohr.com")) return "bamboohr";
+  if (u.includes("recruitee.com")) return "recruitee";
+  if (u.includes("jobs.personio.com")) return "personio";
+  if (u.includes("teamtailor.com")) return "teamtailor";
   return "unknown";
 }
 
 /**
  * Follow a job board listing to find the underlying ATS application URL.
- * Many boards link out to Ashby/Greenhouse/Lever; we fetch the listing page
+ * Many boards link out to known ATS platforms; we fetch the listing page
  * and look for known ATS URLs in the HTML.
  */
 export async function resolveApplyUrl(
@@ -25,7 +32,7 @@ export async function resolveApplyUrl(
   let html: string;
   try {
     const res = await fetch(listingUrl, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; auto-job-apps/1.0)" },
+      headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36" },
       redirect: "follow",
     });
     if (!res.ok) return null;
@@ -40,6 +47,13 @@ export async function resolveApplyUrl(
     [/https?:\/\/(?:boards|job-boards)\.greenhouse\.io\/[^"'\s<>]+/i, "greenhouse"],
     [/https?:\/\/jobs\.(?:eu\.)?lever\.co\/[^"'\s<>]+/i, "lever"],
     [/https?:\/\/apply\.workable\.com\/[^"'\s<>]+/i, "workable"],
+    [/https?:\/\/[^"'\s<>]*\.breezy\.hr\/[^"'\s<>]+/i, "breezy"],
+    [/https?:\/\/(?:apply\.)?jazz\.co\/[^"'\s<>]+/i, "jazzhr"],
+    [/https?:\/\/jobs\.smartrecruiters\.com\/[^"'\s<>]+/i, "smartrecruiters"],
+    [/https?:\/\/[^"'\s<>]*\.bamboohr\.com\/[^"'\s<>]+/i, "bamboohr"],
+    [/https?:\/\/[^"'\s<>]*\.recruitee\.com\/[^"'\s<>]+/i, "recruitee"],
+    [/https?:\/\/[^"'\s<>]*\.jobs\.personio\.com\/[^"'\s<>]+/i, "personio"],
+    [/https?:\/\/[^"'\s<>]*\.teamtailor\.com\/[^"'\s<>]+/i, "teamtailor"],
   ];
 
   for (const [regex, ats] of patterns) {

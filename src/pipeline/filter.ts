@@ -16,9 +16,9 @@ export function filterJob(job: RawJob, config: AppConfig): FilterResult {
   if (excluded) return { pass: false, reason: `excluded keyword: ${excluded}` };
 
   const included = config.includeKeywords.some((k) =>
-    title.includes(k.toLowerCase())
+    haystack.includes(k.toLowerCase())
   );
-  if (!included) return { pass: false, reason: "no matching keyword in title" };
+  if (!included) return { pass: false, reason: "no matching keyword in title or description" };
 
   // Seniority screen: skip roles demanding heavy experience or advanced degrees
   if (/\b(8|9|1\d)\+?\s*years/.test(haystack)) {

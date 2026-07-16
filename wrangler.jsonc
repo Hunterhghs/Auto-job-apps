@@ -10,10 +10,11 @@
     "head_sampling_rate": 1
   },
 
-  // Pipeline runs every 30 minutes; internal jitter + daily budget keep
-  // actual application volume at 10-25/day spread across the day.
+  // Scout-and-apply pipeline: fires every 10 min (~144 intervals/day).
+  // Daily cap (default 15) throttles actual applications — most intervals
+  // just check and skip, giving natural 10-30 min spacing between applies.
   "triggers": {
-    "crons": ["*/30 * * * *"]
+    "crons": ["*/10 * * * *"]
   },
 
   // Dashboard static site. API routes are handled by the Worker first.

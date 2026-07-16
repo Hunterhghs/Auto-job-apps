@@ -100,7 +100,7 @@ export async function inspectForm(page: Page): Promise<FormField[]> {
 
     const seen = new Set<Element>();
     const inputs = document.querySelectorAll(
-      "form input, form textarea, form select"
+      "form input, form textarea, form select, input:not([type='hidden']):not([type='submit']), textarea, select"
     ) as HTMLElement[];
 
     let autoId = 0;

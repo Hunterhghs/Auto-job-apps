@@ -1,9 +1,8 @@
 import type { AtsType, JobStatus, RawJob } from "../types";
-import { getConfig } from "../config";
+import { getConfig, type AppConfig } from "../config";
 import {
-  insertJobs,
+  insertJob,
   appliedTodayCount,
-  nextQueuedJobs,
   updateJobStatus,
   updateJobAts,
   requeueStaleApplying,
@@ -12,7 +11,6 @@ import {
 } from "../db";
 import type { Browser } from "@cloudflare/puppeteer";
 import { searchAllSources } from "./sources";
-import { searchBrowserBoards } from "./sources/browser-boards";
 import { filterJob, termPriority } from "./filter";
 import { classifyAtsFromUrl, resolveApplyUrl } from "./classify";
 import { applyToJobs } from "./apply";
@@ -27,13 +25,14 @@ export interface PipelineEnv {
   DEEPSEEK_API_KEY?: string;
 }
 
-/** Max applications attempted per 30-min run (spreads volume across the day). */
-const PER_RUN_CAP = 5;
-/** Skip discovery entirely while this many jobs are already queued. */
-const QUEUE_TARGET = 20;
-/** Max listing URLs to resolve to ATS apply URLs per run (keeps runs fast). */
-const RESOLVE_CAP = 25;
-
+/**
+ * Scout-and-apply: each cron run discovers ONE job and applies to it
+ * immediately. No queuing, no batching — one application at a time,
+ * spread across the day in regular intervals.
+ *
+ * Cron runs every 15 min (96/day); daily cap (default 15) limits actual
+ * applications. Scale cap to 25, 50, etc. as volume grows.
+ */
 export async function runPipeline(
   env: PipelineEnv,
   trigger: "cron" | "manual"
@@ -48,129 +47,109 @@ export async function runPipeline(
 
   const runId = await startRun(env.DB, trigger);
 
-  // One browser session shared by the whole run (discovery + applying):
-  // Browser Rendering rate-limits new browser launches per minute
+  // Recover any jobs stuck from a crashed run
+  const requeued = await requeueStaleApplying(env.DB);
+  if (requeued > 0) {
+    console.log(JSON.stringify({ event: "stale_jobs_requeued", count: requeued }));
+  }
+
+  // Respect daily budget
+  const appliedToday = await appliedTodayCount(env.DB);
+  if (appliedToday >= config.dailyCap) {
+    console.log(JSON.stringify({ event: "daily_budget_reached", appliedToday }));
+    await finishRun(env.DB, runId, stats);
+    return stats;
+  }
+
   let browser: Browser | null = null;
-  const getBrowser = async (): Promise<Browser> => {
-    if (!browser || !browser.isConnected()) {
-      browser = await launchBrowser(env.BROWSER);
-    }
-    return browser;
-  };
-
   try {
-    // 0. RECOVER - requeue jobs a crashed run left stuck in 'applying'
-    const requeued = await requeueStaleApplying(env.DB);
-    if (requeued > 0) {
-      console.log(JSON.stringify({ event: "stale_jobs_requeued", count: requeued }));
+    // 1. SCOUT — check suggestions board (D1) first, then fresh API sources
+    let candidates = await getQueuedJobs(env.DB);
+    if (candidates.length === 0) {
+      candidates = await scoutCandidates(env, config);
+      console.log(JSON.stringify({ event: "fresh_scout", count: candidates.length }));
+    } else {
+      console.log(JSON.stringify({ event: "queue_board_pull", count: candidates.length }));
     }
 
-    // 1. DISCOVER - only when the queue needs topping up. Search each source
-    // for the configured terms, keep only relevant + applyable jobs, and
-    // discard everything else without storing it.
-    const queueDepth = await queuedCount(env.DB);
-    if (queueDepth < QUEUE_TARGET) {
-      // API-backed sources first; browser-driven boards (searched via the
-      // headless browser: keyword entry + remote filters) top up the rest
-      const rawJobs = await searchAllSources(config.searchTerms);
-      // Browser boards only when APIs came back thin - saves browser time
-      if (rawJobs.length < 30) {
-        const browserJobs = await getBrowser()
-          .then((b) => searchBrowserBoards(b, config.searchTerms))
-          .catch((err) => {
-            console.log(JSON.stringify({ event: "browser_discovery_failed", err: String(err) }));
-            return [];
-          });
-        rawJobs.push(...browserJobs);
-      }
+    if (candidates.length === 0) {
+      console.log(JSON.stringify({ event: "no_jobs_found" }));
+      await finishRun(env.DB, runId, stats);
+      return stats;
+    }
 
-      // Highest-priority term matches get queued (and applied) first
-      rawJobs.sort(
-        (a, b) =>
-          termPriority(a.title, config.searchTerms) - termPriority(b.title, config.searchTerms)
-      );
+    browser = await launchBrowser(env.BROWSER);
 
-      const toInsert: (RawJob & { ats: AtsType; status: JobStatus; skipReason?: string; priority?: number })[] = [];
-      let resolveBudget = RESOLVE_CAP;
-      let queued = queueDepth;
+    // 2. APPLY — try each candidate until one succeeds.
+    // Skip and move to next on any failure; every interval lands an application.
+    for (let i = 0; i < candidates.length; i++) {
+      const job = candidates[i];
+      stats.discovered++;
 
-      for (const job of rawJobs) {
-        if (queued >= QUEUE_TARGET) break;
+      console.log(JSON.stringify({
+        event: "scouted",
+        attempt: i + 1,
+        company: job.company,
+        title: job.title,
+        source: job.source,
+        ats: job.ats,
+      }));
 
-        const filter = filterJob(job, config);
-        if (!filter.pass) continue; // discard - don't waste D1 rows on misses
-        const priority = termPriority(job.title, config.searchTerms);
+      const inserted = await insertJob(env.DB, {
+        ...job,
+        ats: job.ats ?? "unknown",
+        status: "applying" as JobStatus,
+        priority: 0,
+      });
 
-        let ats = classifyAtsFromUrl(job.applyUrl ?? job.url);
-        let applyUrl = job.applyUrl;
+      const results = await applyToJobs(env, browser, [{
+        id: inserted,
+        url_hash: "",
+        url: job.url,
+        apply_url: job.applyUrl ?? null,
+        source: job.source,
+        company: job.company ?? null,
+        title: job.title,
+        location: job.location ?? null,
+        salary: job.salary ?? null,
+        ats: job.ats ?? null,
+        status: "applying",
+        skip_reason: null,
+        error: null,
+        answers_json: null,
+        screenshot_key: null,
+        discovered_at: new Date().toISOString(),
+        applied_at: null,
+      }]);
 
-        // Cheap resolve first (works when the board's HTML embeds ATS links)
-        if (ats === "unknown" && resolveBudget > 0) {
-          resolveBudget--;
-          const resolved = await resolveApplyUrl(job.url);
-          if (resolved) {
-            ats = resolved.ats;
-            applyUrl = resolved.applyUrl;
-          }
+      for (const [_jobId, result] of results) {
+        if (result.resolvedAts && result.resolvedApplyUrl) {
+          await updateJobAts(env.DB, inserted, result.resolvedAts, result.resolvedApplyUrl);
         }
+        await updateJobStatus(env.DB, inserted, result.status, {
+          skipReason: result.reason,
+          error: result.status === "failed" ? result.reason : undefined,
+          answersJson: result.answers ? JSON.stringify(result.answers) : undefined,
+          screenshotKey: result.screenshotKey,
+        });
 
-        if (ats === "workable") {
-          toInsert.push({ ...job, applyUrl, ats, status: "needs_review", skipReason: "workable adapter pending", priority });
+        if (result.status === "applied") {
+          stats.applied++;
+          console.log(JSON.stringify({ event: "applied", company: job.company, title: job.title }));
+        } else if (result.status === "failed") {
+          stats.failed++;
         } else {
-          // Queue even when the ATS is still unknown - the applier navigates
-          // the listing in the real browser to find the apply link, which
-          // beats plain fetch (boards 403 it or render links with JS)
-          toInsert.push({ ...job, applyUrl, ats, status: "queued", priority });
-          queued++;
+          stats.skipped++;
         }
+        console.log(JSON.stringify({
+          event: "apply_attempt",
+          company: job.company,
+          status: result.status,
+          reason: result.reason,
+        }));
       }
 
-      stats.discovered = await insertJobs(env.DB, toInsert);
-      console.log(
-        JSON.stringify({ event: "discovery_done", fetched: rawJobs.length, inserted: stats.discovered, queueDepth: queued })
-      );
-    } else {
-      console.log(JSON.stringify({ event: "discovery_skipped", queueDepth }));
-    }
-
-    // 2. APPLY - respect the daily budget, drain the queue in batches
-    const appliedToday = await appliedTodayCount(env.DB);
-    const remainingToday = Math.max(0, config.dailyCap - appliedToday);
-    const batchSize = Math.min(PER_RUN_CAP, remainingToday);
-
-    if (batchSize > 0) {
-      // Keep pulling from the queue until this run lands its quota of real
-      // applications (dead ends don't count against the daily budget)
-      let attempts = 0;
-      const maxAttempts = batchSize * 3;
-
-      while (stats.applied < batchSize && attempts < maxAttempts) {
-        const batch = await nextQueuedJobs(env.DB, batchSize - stats.applied);
-        if (batch.length === 0) break;
-        attempts += batch.length;
-
-        for (const job of batch) {
-          await updateJobStatus(env.DB, job.id, "applying");
-        }
-
-        const results = await applyToJobs(env, await getBrowser(), batch);
-        for (const [jobId, result] of results) {
-          if (result.resolvedAts && result.resolvedApplyUrl) {
-            await updateJobAts(env.DB, jobId, result.resolvedAts, result.resolvedApplyUrl);
-          }
-          await updateJobStatus(env.DB, jobId, result.status, {
-            skipReason: result.reason,
-            error: result.status === "failed" ? result.reason : undefined,
-            answersJson: result.answers ? JSON.stringify(result.answers) : undefined,
-            screenshotKey: result.screenshotKey,
-          });
-          if (result.status === "applied") stats.applied++;
-          else if (result.status === "failed") stats.failed++;
-          else stats.skipped++;
-        }
-      }
-    } else {
-      console.log(JSON.stringify({ event: "daily_budget_reached", appliedToday }));
+      if (stats.applied > 0) break; // Success — move to next interval
     }
 
     await finishRun(env.DB, runId, stats);
@@ -184,9 +163,121 @@ export async function runPipeline(
   return stats;
 }
 
-async function queuedCount(db: D1Database): Promise<number> {
-  const row = await db
-    .prepare(`SELECT COUNT(*) AS n FROM jobs WHERE status = 'queued'`)
-    .first<{ n: number }>();
-  return row?.n ?? 0;
+/**
+ * Fetch all sources once and return every matching job, deduplicated
+ * and sorted by priority. The caller iterates through one at a time.
+ */
+async function scoutCandidates(
+  env: PipelineEnv,
+  config: AppConfig
+): Promise<(RawJob & { ats: AtsType; applyUrl?: string })[]> {
+  const rawJobs = await searchAllSources(config.searchTerms);
+
+  // Sort: priority first, then prefer less prominent companies (fewer total listings = higher success rate)
+  rawJobs.sort(
+    (a, b) =>
+      termPriority(a.title, config.searchTerms) - termPriority(b.title, config.searchTerms)
+  );
+
+  const seenUrls = new Set<string>();
+  const companyCounts = new Map<string, number>();
+  const MAX_PER_COMPANY = 2; // No more than 2 jobs per company per batch
+  const candidates: (RawJob & { ats: AtsType; applyUrl?: string })[] = [];
+
+  for (const job of rawJobs) {
+    const urlKey = job.url.split("?")[0].toLowerCase();
+    if (seenUrls.has(urlKey)) continue;
+
+    const filter = filterJob(job, config);
+    if (!filter.pass) continue;
+
+    // Enforce company diversity — cap at 2 per company
+    const companyKey = (job.company ?? "unknown").toLowerCase();
+    const count = companyCounts.get(companyKey) ?? 0;
+    if (count >= MAX_PER_COMPANY) continue;
+
+    seenUrls.add(urlKey);
+    companyCounts.set(companyKey, count + 1);
+
+    let ats = classifyAtsFromUrl(job.applyUrl ?? job.url);
+    let applyUrl = job.applyUrl;
+
+    if (ats === "unknown") {
+      const resolved = await resolveApplyUrl(job.url);
+      if (resolved) { ats = resolved.ats; applyUrl = resolved.applyUrl; }
+    }
+
+    candidates.push({ ...job, ats, applyUrl });
+  }
+
+  return candidates;
+}
+
+/** Pull highest-priority queued jobs from D1 (the suggestions board). */
+async function getQueuedJobs(
+  db: D1Database
+): Promise<(RawJob & { ats: AtsType; applyUrl?: string })[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT url, apply_url, source, company, title, location, salary, ats
+       FROM jobs WHERE status = 'queued'
+       ORDER BY priority ASC, discovered_at ASC LIMIT 30`
+    )
+    .all<{ url: string; apply_url: string | null; source: string;
+          company: string | null; title: string; location: string | null;
+          salary: string | null; ats: string | null; }>();
+
+  return results.map((r) => ({
+    url: r.url,
+    applyUrl: r.apply_url ?? undefined,
+    source: r.source,
+    company: r.company ?? undefined,
+    title: r.title,
+    location: r.location ?? undefined,
+    salary: r.salary ?? undefined,
+    ats: (r.ats as AtsType) ?? "unknown",
+  }));
+}
+
+// ── dashboard discovery-only (kept for "Run now" button) ─────────────
+
+export async function discoverOnly(
+  env: PipelineEnv
+): Promise<{ discovered: number }> {
+  const config = await getConfig(env.CONFIG);
+  if (config.paused) return { discovered: 0 };
+
+  await requeueStaleApplying(env.DB);
+  const runId = await startRun(env.DB, "manual");
+
+  // Same scout logic but collect all passing jobs for the dashboard
+  const rawJobs = await searchAllSources(config.searchTerms);
+  rawJobs.sort(
+    (a, b) =>
+      termPriority(a.title, config.searchTerms) - termPriority(b.title, config.searchTerms)
+  );
+
+  let inserted = 0;
+  for (const job of rawJobs) {
+    const filter = filterJob(job, config);
+    if (!filter.pass) continue;
+
+    let ats = classifyAtsFromUrl(job.applyUrl ?? job.url);
+    let applyUrl = job.applyUrl;
+
+    if (ats === "unknown") {
+      const resolved = await resolveApplyUrl(job.url);
+      if (resolved) { ats = resolved.ats; applyUrl = resolved.applyUrl; }
+    }
+
+    const id = await insertJob(env.DB, {
+      ...job, applyUrl, ats,
+      status: "queued" as JobStatus,
+      priority: termPriority(job.title, config.searchTerms),
+    });
+    if (id > 0) inserted++;
+  }
+
+  await finishRun(env.DB, runId, { discovered: inserted, applied: 0, skipped: 0, failed: 0 });
+  return { discovered: inserted };
 }

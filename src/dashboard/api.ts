@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { getConfig, setConfig } from "../config";
-import { runPipeline, type PipelineEnv } from "../pipeline/run";
+import { runPipeline, discoverOnly, type PipelineEnv } from "../pipeline/run";
 import type { AppConfig } from "../types";
 
 export interface ApiEnv extends PipelineEnv {
@@ -61,7 +61,7 @@ api.use("*", async (c, next) => {
 
 api.get("/stats", async (c) => {
   const db = c.env.DB;
-  const [today, total, byStatus, daily, lastRun] = await Promise.all([
+  const [today, total, byStatus, daily, lastRun, recentRuns] = await Promise.all([
     db
       .prepare(
         `SELECT COUNT(*) AS n FROM jobs WHERE status='applied' AND date(applied_at)=date('now')`
@@ -81,6 +81,12 @@ api.get("/stats", async (c) => {
     db
       .prepare(`SELECT * FROM runs ORDER BY id DESC LIMIT 1`)
       .first<Record<string, unknown>>(),
+    db
+      .prepare(
+        `SELECT started_at, applied, skipped, failed FROM runs
+         WHERE date(started_at)=date('now') ORDER BY id`
+      )
+      .all<{ started_at: string; applied: number; skipped: number; failed: number }>(),
   ]);
   const config = await getConfig(c.env.CONFIG);
   return c.json({
@@ -91,6 +97,7 @@ api.get("/stats", async (c) => {
     byStatus: Object.fromEntries(byStatus.results.map((r) => [r.status, r.n])),
     daily: daily.results,
     lastRun,
+    recentRuns: recentRuns.results,
   });
 });
 
@@ -145,10 +152,12 @@ api.put("/config", async (c) => {
 });
 
 api.post("/run", async (c) => {
-  // Manual trigger from the dashboard; runs in the background
+  // Manual trigger: discovery only (fast, no browser). The cron applies
+  // discovered jobs because browser-based form filling needs the 15-min
+  // CPU window that only cron triggers get.
   c.executionCtx.waitUntil(
-    runPipeline(c.env, "manual").catch((err) =>
-      console.log(JSON.stringify({ event: "manual_run_failed", err: String(err) }))
+    discoverOnly(c.env).catch((err) =>
+      console.log(JSON.stringify({ event: "manual_discover_failed", err: String(err) }))
     )
   );
   return c.json({ ok: true, started: true });
@@ -161,4 +170,32 @@ api.get("/screenshot/:key{.+}", async (c) => {
   return new Response(obj.body, {
     headers: { "Content-Type": "image/png", "Cache-Control": "private, max-age=3600" },
   });
+});
+
+// Queue board — available jobs filtered from today's batch
+api.get("/queue-board", async (c) => {
+  const db = c.env.DB;
+  const { results } = await db
+    .prepare(
+      `SELECT id, company, title, source, ats, location, status, skip_reason, discovered_at
+       FROM jobs
+       WHERE date(discovered_at) = date('now')
+         AND status IN ('queued', 'applying')
+       ORDER BY priority ASC, discovered_at ASC
+       LIMIT 50`
+    )
+    .all();
+  return c.json({ jobs: results });
+});
+
+// Company watchlist
+api.get("/watchlist", async (c) => {
+  const { getWatchlist } = await import("../pipeline/sources/companies");
+  const watchlist = await getWatchlist(c.env.CONFIG);
+  // Merge with defaults for display
+  const all: Record<string, { slug: string; ats: string; count: number }[]> = {};
+  for (const [ats, entries] of Object.entries(watchlist)) {
+    all[ats] = entries.map((e) => ({ slug: e.slug, ats: e.ats, count: e.lastSeen }));
+  }
+  return c.json({ watchlist: all });
 });

@@ -7,7 +7,19 @@ export type JobStatus =
   | "needs_review"
   | "dismissed";
 
-export type AtsType = "ashby" | "greenhouse" | "lever" | "workable" | "unknown";
+export type AtsType =
+  | "ashby"
+  | "greenhouse"
+  | "lever"
+  | "workable"
+  | "breezy"
+  | "jazzhr"
+  | "smartrecruiters"
+  | "bamboohr"
+  | "recruitee"
+  | "personio"
+  | "teamtailor"
+  | "unknown";
 
 export interface RawJob {
   url: string;

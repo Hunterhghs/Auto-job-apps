@@ -1,15 +1,21 @@
 import type { RawJob } from "../../types";
+import { fetchGreenhouseDirect } from "./greenhouse-direct";
+import { fetchAshbyDirect } from "./ashby-direct";
 import { fetchRemotive } from "./remotive";
 import { fetchHimalayas } from "./himalayas";
 import { fetchWorkingNomads } from "./workingnomads";
 import { fetchEuRemoteJobs } from "./euremotejobs";
 
+// Priority order: direct ATS sources first (guaranteed modern forms),
+// then API boards (may require ATS resolution).
 const SOURCES: Record<string, (searchTerms: string[]) => Promise<RawJob[]>> = {
-  remotive: fetchRemotive,
+  "greenhouse-direct": fetchGreenhouseDirect,
+  "ashby-direct": fetchAshbyDirect,
   himalayas: fetchHimalayas,
+  // Secondary: board APIs that often need browser-based ATS resolution
   workingnomads: fetchWorkingNomads,
+  remotive: fetchRemotive,
   euremotejobs: fetchEuRemoteJobs,
-  // Planned: remotefront, hiringcafe, dailyremote, workew, remoteleaf
 };
 
 /**

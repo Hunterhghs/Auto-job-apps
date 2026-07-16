@@ -10,7 +10,7 @@ export async function fetchEuRemoteJobs(searchTerms: string[]): Promise<RawJob[]
     searchTerms.map((term) =>
       fetch(
         `https://euremotejobs.com/?feed=job_feed&search_keywords=${encodeURIComponent(term)}`,
-        { headers: { "User-Agent": "Mozilla/5.0 (compatible; auto-job-apps/1.0)" } }
+        { headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36" } }
       ).then((res) => (res.ok ? res.text() : ""))
     )
   );
