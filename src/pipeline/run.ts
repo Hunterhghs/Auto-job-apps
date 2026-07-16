@@ -9,11 +9,13 @@ import {
   startRun,
   finishRun,
 } from "../db";
+import type { Browser } from "@cloudflare/puppeteer";
 import { searchAllSources } from "./sources";
 import { searchBrowserBoards } from "./sources/browser-boards";
 import { filterJob, termPriority } from "./filter";
 import { classifyAtsFromUrl, resolveApplyUrl } from "./classify";
 import { applyToJobs } from "./apply";
+import { launchBrowser } from "./browser";
 
 export interface PipelineEnv {
   DB: D1Database;
@@ -45,6 +47,16 @@ export async function runPipeline(
 
   const runId = await startRun(env.DB, trigger);
 
+  // One browser session shared by the whole run (discovery + applying):
+  // Browser Rendering rate-limits new browser launches per minute
+  let browser: Browser | null = null;
+  const getBrowser = async (): Promise<Browser> => {
+    if (!browser || !browser.isConnected()) {
+      browser = await launchBrowser(env.BROWSER);
+    }
+    return browser;
+  };
+
   try {
     // 1. DISCOVER - only when the queue needs topping up. Search each source
     // for the configured terms, keep only relevant + applyable jobs, and
@@ -54,13 +66,16 @@ export async function runPipeline(
       // API-backed sources first; browser-driven boards (searched via the
       // headless browser: keyword entry + remote filters) top up the rest
       const rawJobs = await searchAllSources(config.searchTerms);
-      const browserJobs = await searchBrowserBoards(env.BROWSER, config.searchTerms).catch(
-        (err) => {
-          console.log(JSON.stringify({ event: "browser_discovery_failed", err: String(err) }));
-          return [];
-        }
-      );
-      rawJobs.push(...browserJobs);
+      // Browser boards only when APIs came back thin - saves browser time
+      if (rawJobs.length < 30) {
+        const browserJobs = await getBrowser()
+          .then((b) => searchBrowserBoards(b, config.searchTerms))
+          .catch((err) => {
+            console.log(JSON.stringify({ event: "browser_discovery_failed", err: String(err) }));
+            return [];
+          });
+        rawJobs.push(...browserJobs);
+      }
 
       // Highest-priority term matches get queued (and applied) first
       rawJobs.sort(
@@ -131,7 +146,7 @@ export async function runPipeline(
           await updateJobStatus(env.DB, job.id, "applying");
         }
 
-        const results = await applyToJobs(env, batch);
+        const results = await applyToJobs(env, await getBrowser(), batch);
         for (const [jobId, result] of results) {
           if (result.resolvedAts && result.resolvedApplyUrl) {
             await updateJobAts(env.DB, jobId, result.resolvedAts, result.resolvedApplyUrl);
@@ -155,6 +170,8 @@ export async function runPipeline(
   } catch (err) {
     await finishRun(env.DB, runId, stats, `run error: ${String(err)}`);
     throw err;
+  } finally {
+    if (browser) await browser.close().catch(() => {});
   }
 
   return stats;

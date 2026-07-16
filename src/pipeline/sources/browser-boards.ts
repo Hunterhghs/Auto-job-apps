@@ -1,4 +1,4 @@
-import puppeteer, { type Browser, type Page } from "@cloudflare/puppeteer";
+import type { Browser, Page } from "@cloudflare/puppeteer";
 import type { RawJob } from "../../types";
 
 /**
@@ -45,7 +45,7 @@ const BOARDS_PER_RUN = 2;
 const TERMS_PER_BOARD = 3;
 
 export async function searchBrowserBoards(
-  browserBinding: Fetcher,
+  browser: Browser,
   searchTerms: string[]
 ): Promise<RawJob[]> {
   const terms = searchTerms.slice(0, TERMS_PER_BOARD);
@@ -56,26 +56,20 @@ export async function searchBrowserBoards(
   const boards = [...BOARDS, ...BOARDS].slice(start, start + BOARDS_PER_RUN);
 
   const jobs: RawJob[] = [];
-  let browser: Browser | null = null;
-  try {
-    browser = await puppeteer.launch(browserBinding);
-    for (const board of boards) {
-      for (const term of terms) {
-        try {
-          const found = await searchBoard(browser, board, term);
-          jobs.push(...found);
-          console.log(
-            JSON.stringify({ event: "browser_board_searched", board: board.name, term, count: found.length })
-          );
-        } catch (err) {
-          console.log(
-            JSON.stringify({ event: "browser_board_failed", board: board.name, term, err: String(err) })
-          );
-        }
+  for (const board of boards) {
+    for (const term of terms) {
+      try {
+        const found = await searchBoard(browser, board, term);
+        jobs.push(...found);
+        console.log(
+          JSON.stringify({ event: "browser_board_searched", board: board.name, term, count: found.length })
+        );
+      } catch (err) {
+        console.log(
+          JSON.stringify({ event: "browser_board_failed", board: board.name, term, err: String(err) })
+        );
       }
     }
-  } finally {
-    if (browser) await browser.close();
   }
   return jobs;
 }

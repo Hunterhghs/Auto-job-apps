@@ -1,4 +1,4 @@
-import puppeteer, { type Page } from "@cloudflare/puppeteer";
+import type { Browser, Page } from "@cloudflare/puppeteer";
 import type { ApplyResult, AtsType, JobRow } from "../../types";
 import { classifyAtsFromUrl } from "../classify";
 import { fillAndSubmit } from "./generic";
@@ -92,14 +92,13 @@ async function resolveInBrowser(
  */
 export async function applyToJobs(
   env: ApplierEnv,
+  browser: Browser,
   jobs: JobRow[]
 ): Promise<Map<number, ApplyResult>> {
   const results = new Map<number, ApplyResult>();
   if (jobs.length === 0) return results;
 
-  const browser = await puppeteer.launch(env.BROWSER);
-  try {
-    for (const job of jobs) {
+  for (const job of jobs) {
       const page = await browser.newPage();
       try {
         await page.setUserAgent(
@@ -118,7 +117,6 @@ export async function applyToJobs(
               status: "needs_review",
               reason: "could not reach an Ashby/Greenhouse/Lever form from listing",
             });
-            await page.close();
             continue;
           }
           ats = resolved.ats;
@@ -157,13 +155,10 @@ export async function applyToJobs(
         results.set(job.id, { status: "failed", reason: String(err) });
         console.log(JSON.stringify({ event: "apply_error", job: job.id, err: String(err) }));
       } finally {
-        await page.close();
+        await page.close().catch(() => {});
       }
       // Human-like gap between applications within a session
       await sleep(jitter(8_000, 20_000));
-    }
-  } finally {
-    await browser.close();
   }
   return results;
 }
