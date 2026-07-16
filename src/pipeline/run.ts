@@ -5,6 +5,7 @@ import {
   appliedTodayCount,
   nextQueuedJobs,
   updateJobStatus,
+  updateJobAts,
   startRun,
   finishRun,
 } from "../db";
@@ -81,6 +82,7 @@ export async function runPipeline(
         let ats = classifyAtsFromUrl(job.applyUrl ?? job.url);
         let applyUrl = job.applyUrl;
 
+        // Cheap resolve first (works when the board's HTML embeds ATS links)
         if (ats === "unknown" && resolveBudget > 0) {
           resolveBudget--;
           const resolved = await resolveApplyUrl(job.url);
@@ -90,14 +92,15 @@ export async function runPipeline(
           }
         }
 
-        if (ats === "ashby" || ats === "greenhouse" || ats === "lever") {
+        if (ats === "workable") {
+          toInsert.push({ ...job, applyUrl, ats, status: "needs_review", skipReason: "workable adapter pending", priority });
+        } else {
+          // Queue even when the ATS is still unknown - the applier navigates
+          // the listing in the real browser to find the apply link, which
+          // beats plain fetch (boards 403 it or render links with JS)
           toInsert.push({ ...job, applyUrl, ats, status: "queued", priority });
           queued++;
-        } else if (ats === "workable") {
-          toInsert.push({ ...job, applyUrl, ats, status: "needs_review", skipReason: "workable adapter pending", priority });
         }
-        // unknown ATS: discard silently - relevant-but-unapplyable jobs were
-        // flooding the review queue; revisit when more adapters exist
       }
 
       stats.discovered = await insertJobs(env.DB, toInsert);
@@ -114,22 +117,35 @@ export async function runPipeline(
     const batchSize = Math.min(PER_RUN_CAP, remainingToday);
 
     if (batchSize > 0) {
-      const batch = await nextQueuedJobs(env.DB, batchSize);
-      for (const job of batch) {
-        await updateJobStatus(env.DB, job.id, "applying");
-      }
+      // Keep pulling from the queue until this run lands its quota of real
+      // applications (dead ends don't count against the daily budget)
+      let attempts = 0;
+      const maxAttempts = batchSize * 3;
 
-      const results = await applyToJobs(env, batch);
-      for (const [jobId, result] of results) {
-        await updateJobStatus(env.DB, jobId, result.status, {
-          skipReason: result.reason,
-          error: result.status === "failed" ? result.reason : undefined,
-          answersJson: result.answers ? JSON.stringify(result.answers) : undefined,
-          screenshotKey: result.screenshotKey,
-        });
-        if (result.status === "applied") stats.applied++;
-        else if (result.status === "failed") stats.failed++;
-        else stats.skipped++;
+      while (stats.applied < batchSize && attempts < maxAttempts) {
+        const batch = await nextQueuedJobs(env.DB, batchSize - stats.applied);
+        if (batch.length === 0) break;
+        attempts += batch.length;
+
+        for (const job of batch) {
+          await updateJobStatus(env.DB, job.id, "applying");
+        }
+
+        const results = await applyToJobs(env, batch);
+        for (const [jobId, result] of results) {
+          if (result.resolvedAts && result.resolvedApplyUrl) {
+            await updateJobAts(env.DB, jobId, result.resolvedAts, result.resolvedApplyUrl);
+          }
+          await updateJobStatus(env.DB, jobId, result.status, {
+            skipReason: result.reason,
+            error: result.status === "failed" ? result.reason : undefined,
+            answersJson: result.answers ? JSON.stringify(result.answers) : undefined,
+            screenshotKey: result.screenshotKey,
+          });
+          if (result.status === "applied") stats.applied++;
+          else if (result.status === "failed") stats.failed++;
+          else stats.skipped++;
+        }
       }
     } else {
       console.log(JSON.stringify({ event: "daily_budget_reached", appliedToday }));

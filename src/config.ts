@@ -8,6 +8,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   // Priority order: first term = highest priority. The queue drains
   // higher-priority matches first.
   searchTerms: [
+    "analyst",
     "business analyst",
     "market research",
     "research analyst",

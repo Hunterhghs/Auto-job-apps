@@ -19,6 +19,8 @@ interface BrowserBoard {
   typeSearch?: { inputSelector: string };
 }
 
+// Free boards with working search only. DailyRemote and Remote Leaf are
+// subscription-gated; Remote Front's search proved unreliable - excluded.
 const BOARDS: BrowserBoard[] = [
   {
     name: "hiringcafe",
@@ -29,21 +31,9 @@ const BOARDS: BrowserBoard[] = [
     resultsSelector: "a[href]",
   },
   {
-    name: "dailyremote",
-    searchUrl: (term) =>
-      `https://dailyremote.com/remote-jobs/search?term=${encodeURIComponent(term)}`,
-    resultsSelector: "a[href*='/remote-job']",
-  },
-  {
     name: "workew",
     searchUrl: (term) => `https://workew.com/?s=${encodeURIComponent(term)}`,
     resultsSelector: "article a[href], .job_listing a[href]",
-  },
-  {
-    name: "remotefront",
-    searchUrl: (term) =>
-      `https://www.remotefront.com/?search=${encodeURIComponent(term)}`,
-    resultsSelector: "a[href]",
   },
 ];
 

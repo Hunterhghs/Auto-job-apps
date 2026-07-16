@@ -71,13 +71,25 @@ export async function nextQueuedJobs(
   const { results } = await db
     .prepare(
       `SELECT * FROM jobs
-       WHERE status = 'queued' AND ats IN ('ashby', 'greenhouse', 'lever')
+       WHERE status = 'queued'
        ORDER BY priority ASC, discovered_at ASC
        LIMIT ?`
     )
     .bind(limit)
     .all<JobRow>();
   return results;
+}
+
+export async function updateJobAts(
+  db: D1Database,
+  id: number,
+  ats: string,
+  applyUrl: string
+): Promise<void> {
+  await db
+    .prepare(`UPDATE jobs SET ats = ?, apply_url = ? WHERE id = ?`)
+    .bind(ats, applyUrl, id)
+    .run();
 }
 
 export async function updateJobStatus(

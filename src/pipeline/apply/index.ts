@@ -1,5 +1,6 @@
-import puppeteer from "@cloudflare/puppeteer";
-import type { ApplyResult, JobRow } from "../../types";
+import puppeteer, { type Page } from "@cloudflare/puppeteer";
+import type { ApplyResult, AtsType, JobRow } from "../../types";
+import { classifyAtsFromUrl } from "../classify";
 import { fillAndSubmit } from "./generic";
 import { sleep, jitter } from "./formkit";
 
@@ -11,15 +12,79 @@ interface ApplierEnv {
 }
 
 /** Ashby application forms live at <job-url>/application */
-function toApplicationUrl(job: JobRow): string {
-  const url = job.apply_url ?? job.url;
-  if (job.ats === "ashby" && !/\/application\/?$/.test(url)) {
+function toApplicationUrl(ats: AtsType | null, url: string): string {
+  if (ats === "ashby" && !/\/application\/?$/.test(url)) {
     return url.replace(/\/?$/, "/application");
   }
-  if (job.ats === "lever" && !/\/apply\/?$/.test(url)) {
+  if (ats === "lever" && !/\/apply\/?$/.test(url)) {
     return url.replace(/\/?$/, "/apply");
   }
   return url;
+}
+
+const ATS_LINK =
+  /https?:\/\/(jobs\.ashbyhq\.com|boards\.greenhouse\.io|job-boards\.greenhouse\.io|grnh\.se|jobs\.(?:eu\.)?lever\.co|apply\.workable\.com)[^"'\s<>]*/i;
+
+/**
+ * For listings where the ATS is unknown: load the board's job page in the
+ * real browser (so JS-rendered apply buttons exist), find the outbound
+ * apply link, and follow it to the actual ATS. Returns the resolved ATS
+ * page URL or null.
+ */
+async function resolveInBrowser(
+  page: Page,
+  listingUrl: string
+): Promise<{ ats: AtsType; url: string } | null> {
+  await page.goto(listingUrl, { waitUntil: "networkidle2", timeout: 45_000 });
+  await sleep(jitter(1500, 3000));
+
+  // 0. Board redirect links (e.g. workingnomads.com/job/go/...) can land
+  //    directly on the ATS page
+  const landedAts = classifyAtsFromUrl(page.url());
+  if (landedAts !== "unknown" && landedAts !== "workable") {
+    return { ats: landedAts, url: page.url() };
+  }
+
+  // 1. Direct ATS hrefs anywhere in the rendered DOM
+  const direct = await page.evaluate(() => {
+    const hrefs: string[] = [];
+    for (const a of document.querySelectorAll("a[href]")) {
+      hrefs.push((a as { href: string }).href);
+    }
+    return hrefs;
+  });
+  for (const href of direct) {
+    const match = href.match(ATS_LINK);
+    if (match) {
+      const ats = classifyAtsFromUrl(match[0]);
+      if (ats !== "unknown" && ats !== "workable") return { ats, url: match[0] };
+    }
+  }
+
+  // 2. Follow the most prominent "Apply" link (boards often use their own
+  //    redirect URLs that 403 plain fetches but work in a real browser)
+  const applyHref = await page.evaluate(() => {
+    const anchors = [...document.querySelectorAll("a[href]")] as {
+      href: string;
+      textContent: string | null;
+    }[];
+    const apply = anchors.find((a) =>
+      /apply|application/i.test(a.textContent ?? "")
+    );
+    return apply?.href ?? null;
+  });
+  if (!applyHref || applyHref.startsWith("mailto:")) return null;
+
+  try {
+    await page.goto(applyHref, { waitUntil: "networkidle2", timeout: 45_000 });
+    await sleep(2000);
+    const finalUrl = page.url();
+    const ats = classifyAtsFromUrl(finalUrl);
+    if (ats !== "unknown" && ats !== "workable") return { ats, url: finalUrl };
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 /**
@@ -41,13 +106,36 @@ export async function applyToJobs(
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
         );
         await page.setViewport({ width: 1280, height: 1600 });
-        await page.goto(toApplicationUrl(job), {
+
+        // Unknown ATS: navigate the board listing to find the real ATS page
+        let ats = job.ats;
+        let applyUrl = job.apply_url ?? job.url;
+        let resolved: { ats: AtsType; url: string } | null = null;
+        if (!ats || ats === "unknown") {
+          resolved = await resolveInBrowser(page, job.url);
+          if (!resolved) {
+            results.set(job.id, {
+              status: "needs_review",
+              reason: "could not reach an Ashby/Greenhouse/Lever form from listing",
+            });
+            await page.close();
+            continue;
+          }
+          ats = resolved.ats;
+          applyUrl = resolved.url;
+        }
+
+        await page.goto(toApplicationUrl(ats, applyUrl), {
           waitUntil: "networkidle2",
           timeout: 45_000,
         });
         await sleep(jitter(1500, 3500));
 
-        const result = await fillAndSubmit(page, env, job);
+        const result = await fillAndSubmit(page, env, { ...job, ats });
+        if (resolved) {
+          result.resolvedAts = resolved.ats;
+          result.resolvedApplyUrl = resolved.url;
+        }
 
         // Store proof-of-outcome screenshot for every attempt
         try {

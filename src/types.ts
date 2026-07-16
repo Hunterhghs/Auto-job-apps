@@ -57,4 +57,7 @@ export interface ApplyResult {
   reason?: string;
   answers?: Record<string, string>;
   screenshotKey?: string;
+  /** Set when the browser resolved an unknown-ATS listing to a real ATS page */
+  resolvedAts?: AtsType;
+  resolvedApplyUrl?: string;
 }
