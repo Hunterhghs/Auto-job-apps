@@ -6,6 +6,7 @@ import {
   nextQueuedJobs,
   updateJobStatus,
   updateJobAts,
+  requeueStaleApplying,
   startRun,
   finishRun,
 } from "../db";
@@ -58,6 +59,12 @@ export async function runPipeline(
   };
 
   try {
+    // 0. RECOVER - requeue jobs a crashed run left stuck in 'applying'
+    const requeued = await requeueStaleApplying(env.DB);
+    if (requeued > 0) {
+      console.log(JSON.stringify({ event: "stale_jobs_requeued", count: requeued }));
+    }
+
     // 1. DISCOVER - only when the queue needs topping up. Search each source
     // for the configured terms, keep only relevant + applyable jobs, and
     // discard everything else without storing it.

@@ -80,6 +80,17 @@ export async function nextQueuedJobs(
   return results;
 }
 
+/**
+ * Crash recovery: jobs stuck in 'applying' from a previous run that died
+ * (browser rate limit, worker eviction) go back to the queue.
+ */
+export async function requeueStaleApplying(db: D1Database): Promise<number> {
+  const result = await db
+    .prepare(`UPDATE jobs SET status = 'queued' WHERE status = 'applying'`)
+    .run();
+  return result.meta.changes;
+}
+
 export async function updateJobAts(
   db: D1Database,
   id: number,
