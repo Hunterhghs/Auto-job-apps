@@ -379,6 +379,59 @@ function matchNumber(label: string): number | null {
   return null;
 }
 
+/** Handle email verification if the form requires it. Polls KV for a code. */
+async function handleEmailVerification(
+  page: Page,
+  env: ApplierEnv,
+  answers: Record<string, string>
+): Promise<"verified" | "not_needed" | "failed"> {
+  const hasVerify = await page.evaluate(() => {
+    const text = document.body.innerText.toLowerCase();
+    return /verification code|verify your email|enter code|confirm.*email|check your email/i.test(text);
+  });
+  if (!hasVerify) return "not_needed";
+
+  const emailAddr = Object.entries(answers).find(([k]) => /email/i.test(k))?.[1]
+    || profile.contact.email;
+
+  await page.evaluate(() => {
+    const btns = [...document.querySelectorAll("button, [role='button'], a")] as HTMLElement[];
+    const send = btns.find(b => /send code|verify|confirm/i.test(b.textContent ?? ""));
+    if (send) send.click();
+  });
+  await sleep(2000);
+
+  const kvKey = `verify:${emailAddr}`;
+  for (let i = 0; i < 30; i++) {
+    await sleep(3000);
+    try {
+      if (env.CONFIG) {
+        const code = await env.CONFIG.get(kvKey);
+        if (code) {
+          const filled = await page.evaluate((c) => {
+            const inputs = [...document.querySelectorAll("input")] as HTMLInputElement[];
+            const codeInput = inputs.find(el =>
+              /code|verification|verify|otp/i.test(el.name || el.id || el.getAttribute("aria-label") || "")
+            );
+            if (codeInput) {
+              codeInput.value = c;
+              codeInput.dispatchEvent(new Event("input", { bubbles: true }));
+              codeInput.dispatchEvent(new Event("change", { bubbles: true }));
+              return true;
+            }
+            return false;
+          }, code);
+          if (filled) {
+            await env.CONFIG.delete(kvKey);
+            return "verified";
+          }
+        }
+      }
+    } catch { /* keep polling */ }
+  }
+  return "failed";
+}
+
 async function clickSubmit(page: Page): Promise<boolean> {
   const selector = await page.evaluate(() => {
     const candidates = [
