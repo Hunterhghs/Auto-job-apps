@@ -16,6 +16,7 @@ import {
 interface ApplierEnv {
   AI: Ai;
   FILES: R2Bucket;
+  CONFIG?: KVNamespace;
   DEEPSEEK_API_KEY?: string;
 }
 
@@ -90,6 +91,12 @@ async function doFillAndSubmit(
       }
     }
     await sleep(jitter(300, 900));
+  }
+
+  // Handle email verification if detected
+  const verified = await handleEmailVerification(page, env, answers);
+  if (verified === "failed") {
+    return { status: "needs_review", reason: "email verification required but code not received", answers };
   }
 
   // Submit

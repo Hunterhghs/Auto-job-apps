@@ -8,6 +8,7 @@ interface ApplierEnv {
   BROWSER: Fetcher;
   AI: Ai;
   FILES: R2Bucket;
+  CONFIG?: KVNamespace;
   DEEPSEEK_API_KEY?: string;
 }
 

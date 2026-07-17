@@ -15,7 +15,6 @@ export default {
   },
 
   async scheduled(_controller, env, ctx): Promise<void> {
-    // Jitter the start inside the cron window so activity isn't clockwork
     const delayMs = Math.floor(Math.random() * 4 * 60 * 1000);
     ctx.waitUntil(
       (async () => {
@@ -28,5 +27,24 @@ export default {
         }
       })()
     );
+  },
+
+  // Email handler — receives forwarded emails, extracts verification codes
+  async email(message, env, ctx): Promise<void> {
+    try {
+      const raw = await new Response(message.raw).text();
+      // Extract 4-8 digit verification code from email body
+      const codeMatch = raw.match(/\b(\d{4,8})\b/);
+      if (codeMatch) {
+        const code = codeMatch[1];
+        // Store in KV with 5-min TTL. Keyed by recipient so multiple
+        // concurrent applications don't collide.
+        const key = `verify:${message.to}`;
+        await env.CONFIG.put(key, code, { expirationTtl: 300 });
+        console.log(JSON.stringify({ event: "email_code_stored", to: message.to }));
+      }
+    } catch (err) {
+      console.log(JSON.stringify({ event: "email_parse_failed", err: String(err) }));
+    }
   },
 } satisfies ExportedHandler<Env>;
