@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Daily Jobs — Auto Job Apps</title>
+  <style>
+    :root {
+      --bg: #0e1116; --panel: #161b22; --panel-2: #1c2330; --border: #2a3342;
+      --text: #e6e9ef; --muted: #8b95a7; --accent: #4f8cff; --green: #3fb87f;
+      --amber: #e5a83b; --red: #e05d5d;
+      font-size: 15px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    header { max-width: 900px; margin: 0 auto; padding: 24px 20px 0; display: flex; justify-content: space-between; align-items: center; }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .logo { font-size: 1.4rem; background: linear-gradient(135deg, var(--accent), #7c5cff); -webkit-background-clip: text; color: transparent; }
+    h1 { font-size: 1.1rem; }
+    .btn { background: var(--panel-2); border: 1px solid var(--border); color: var(--text); padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.85rem; text-decoration: none; }
+    .btn:hover { border-color: var(--muted); }
+    main { max-width: 900px; margin: 0 auto; padding: 20px; }
+    .job-count { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; }
+    .job-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+    .job-card:hover { border-color: var(--accent); }
+    .job-info { flex: 1; min-width: 0; }
+    .job-company { font-size: 0.75rem; color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+    .job-title { font-size: 0.95rem; margin: 3px 0 4px; }
+    .job-meta { font-size: 0.72rem; color: var(--muted); display: flex; gap: 12px; }
+    .job-link { background: linear-gradient(135deg, var(--accent), #7c5cff); color: #fff; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 0.82rem; text-decoration: none; white-space: nowrap; font-weight: 500; }
+    .job-link:hover { opacity: 0.9; }
+    .pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.65rem; font-weight: 600; }
+    .pill.applied { background: rgba(63,184,127,0.15); color: var(--green); }
+    .pill.queued { background: rgba(79,140,255,0.15); color: var(--accent); }
+    .pill.skipped { background: rgba(139,149,167,0.15); color: var(--muted); }
+    .hidden { display: none !important; }
+    .loading { text-align: center; color: var(--muted); padding: 60px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">◎</span>
+      <h1>Daily Job Listings</h1>
+    </div>
+    <a href="/" class="btn">← Dashboard</a>
+  </header>
+  <main>
+    <p class="job-count" id="count">Loading…</p>
+    <div id="jobs"></div>
+  </main>
+  <script>
+    async function load() {
+      try {
+        const res = await fetch("/api/daily-jobs");
+        if (res.status === 401) { document.body.innerHTML = '<div class="loading">Please <a href="/" style="color:var(--accent)">sign in</a> first.</div>'; return; }
+        const { jobs } = await res.json();
+        document.getElementById("count").textContent = `${jobs.length} jobs discovered today`;
+        const container = document.getElementById("jobs");
+        if (!jobs.length) { container.innerHTML = '<div class="loading">No jobs discovered yet today. Check back after the next cron interval.</div>'; return; }
+        container.innerHTML = jobs.map(j => {
+          const url = j.apply_url || j.url;
+          const statusClass = j.status === "applied" ? "applied" : j.status === "skipped" ? "skipped" : "queued";
+          return `<div class="job-card">
+            <div class="job-info">
+              <div class="job-company">${esc(j.company || "—")} · ${esc(j.source)} · ${esc(j.ats || "—")}</div>
+              <div class="job-title">${esc(j.title)}</div>
+              <div class="job-meta"><span>${esc(j.location || "Remote")}</span><span class="pill ${statusClass}">${esc(j.status)}</span></div>
+            </div>
+            <a href="${esc(url)}" target="_blank" rel="noopener" class="job-link">Apply ↗</a>
+          </div>`;
+        }).join("");
+      } catch(e) { document.getElementById("jobs").innerHTML = '<div class="loading">Failed to load. Try refreshing.</div>'; }
+    }
+    function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]); }
+    load();
+  </script>
+</body>
+</html>

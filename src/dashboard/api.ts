@@ -199,3 +199,18 @@ api.get("/watchlist", async (c) => {
   }
   return c.json({ watchlist: all });
 });
+
+// Daily job listings — every discovered job today with clickable URLs
+api.get("/daily-jobs", async (c) => {
+  const db = c.env.DB;
+  const { results } = await db
+    .prepare(
+      `SELECT id, company, title, url, apply_url, source, ats, location, status, discovered_at
+       FROM jobs
+       WHERE date(discovered_at) = date('now')
+       ORDER BY priority ASC, discovered_at DESC
+       LIMIT 200`
+    )
+    .all();
+  return c.json({ jobs: results });
+});
