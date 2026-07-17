@@ -401,7 +401,7 @@ async function handleEmailVerification(
   });
   await sleep(2000);
 
-  const kvKey = `verify:${emailAddr}`;
+  const kvKey = "verify:last_code";
   for (let i = 0; i < 30; i++) {
     await sleep(3000);
     try {

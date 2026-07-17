@@ -37,11 +37,9 @@ export default {
       const codeMatch = raw.match(/\b(\d{4,8})\b/);
       if (codeMatch) {
         const code = codeMatch[1];
-        // Store in KV with 5-min TTL. Keyed by recipient so multiple
-        // concurrent applications don't collide.
-        const key = `verify:${message.to}`;
-        await env.CONFIG.put(key, code, { expirationTtl: 300 });
-        console.log(JSON.stringify({ event: "email_code_stored", to: message.to }));
+        // Store under well-known key — only one application runs at a time
+        await env.CONFIG.put("verify:last_code", code, { expirationTtl: 300 });
+        console.log(JSON.stringify({ event: "email_code_stored", code: "****" }));
       }
     } catch (err) {
       console.log(JSON.stringify({ event: "email_parse_failed", err: String(err) }));
