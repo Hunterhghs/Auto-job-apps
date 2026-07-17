@@ -68,6 +68,10 @@ export async function runPipeline(
     if (candidates.length === 0) {
       candidates = await scoutCandidates(env, config);
       console.log(JSON.stringify({ event: "fresh_scout", count: candidates.length }));
+      // Store ALL scouted jobs so the Daily Jobs page shows the full batch
+      for (const job of candidates) {
+        await insertJob(env.DB, { ...job, ats: job.ats ?? "unknown", status: "queued" as JobStatus, priority: 0 });
+      }
     } else {
       console.log(JSON.stringify({ event: "queue_board_pull", count: candidates.length }));
     }
