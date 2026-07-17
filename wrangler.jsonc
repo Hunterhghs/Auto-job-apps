@@ -45,10 +45,13 @@
   "r2_buckets": [
     {
       "binding": "FILES",
-      // Create with: wrangler r2 bucket create auto-job-apps
       "bucket_name": "auto-job-apps"
     }
-  ]
+  ],
+
+  // Email Routing: receives forwarded emails (verification codes)
+  // to apply@hheuristics.com → Worker extracts codes → stores in KV
+  "workers_email": true
 
   // Secrets (set with `wrangler secret put <NAME>`):
   //   DASHBOARD_PASSCODE - passcode for the dashboard login
