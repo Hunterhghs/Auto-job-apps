@@ -63,17 +63,19 @@ export async function runPipeline(
 
   let browser: Browser | null = null;
   try {
-    // 1. SCOUT — check suggestions board (D1) first, then fresh API sources
+    // 1. SCOUT — always pull fresh from API sources to keep the board full
+    const freshJobs = await scoutCandidates(env, config);
+    console.log(JSON.stringify({ event: "fresh_scout", count: freshJobs.length }));
+
+    // Store all in D1 — populates the Daily Jobs page and queue board
+    for (const job of freshJobs) {
+      await insertJob(env.DB, { ...job, ats: job.ats ?? "unknown", status: "queued" as JobStatus, priority: 0 });
+    }
+
+    // For applying: prefer D1 queued jobs (pre-vetted, known ATS), then fall back to fresh
     let candidates = await getQueuedJobs(env.DB);
     if (candidates.length === 0) {
-      candidates = await scoutCandidates(env, config);
-      console.log(JSON.stringify({ event: "fresh_scout", count: candidates.length }));
-      // Store ALL scouted jobs so the Daily Jobs page shows the full batch
-      for (const job of candidates) {
-        await insertJob(env.DB, { ...job, ats: job.ats ?? "unknown", status: "queued" as JobStatus, priority: 0 });
-      }
-    } else {
-      console.log(JSON.stringify({ event: "queue_board_pull", count: candidates.length }));
+      candidates = freshJobs;
     }
 
     if (candidates.length === 0) {
