@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { getConfig, setConfig } from "../config";
-import { runPipeline, discoverOnly, type PipelineEnv } from "../pipeline/run";
+import { runPipeline, dailyScrape, type PipelineEnv } from "../pipeline/run";
 import type { AppConfig } from "../types";
 
 export interface ApiEnv extends PipelineEnv {
