@@ -179,11 +179,22 @@ async function scoutCandidates(
 ): Promise<(RawJob & { ats: AtsType; applyUrl?: string })[]> {
   const rawJobs = await searchAllSources(config.searchTerms);
 
-  // Sort: priority first, then prefer less prominent companies (fewer total listings = higher success rate)
-  rawJobs.sort(
-    (a, b) =>
-      termPriority(a.title, config.searchTerms) - termPriority(b.title, config.searchTerms)
-  );
+  // Sort: priority first, then prefer LESS prominent companies (fewer listings = less competition = higher success rate)
+  const companyJobCounts = new Map<string, number>();
+  for (const job of rawJobs) {
+    const key = (job.company ?? "").toLowerCase();
+    companyJobCounts.set(key, (companyJobCounts.get(key) ?? 0) + 1);
+  }
+  
+  rawJobs.sort((a, b) => {
+    const priA = termPriority(a.title, config.searchTerms);
+    const priB = termPriority(b.title, config.searchTerms);
+    if (priA !== priB) return priA - priB;
+    // Tiebreaker: prefer smaller companies (fewer total listings in this batch = less competitive)
+    const sizeA = companyJobCounts.get((a.company ?? "").toLowerCase()) ?? 999;
+    const sizeB = companyJobCounts.get((b.company ?? "").toLowerCase()) ?? 999;
+    return sizeA - sizeB;
+  });
 
   const seenUrls = new Set<string>();
   const companyCounts = new Map<string, number>();
@@ -219,7 +230,7 @@ async function scoutCandidates(
   return candidates;
 }
 
-/** Pull highest-priority queued jobs from D1 (the suggestions board). */
+/** Pull highest-priority queued jobs from D1, preferring smaller companies. */
 async function getQueuedJobs(
   db: D1Database
 ): Promise<(RawJob & { ats: AtsType; applyUrl?: string })[]> {
@@ -232,6 +243,18 @@ async function getQueuedJobs(
     .all<{ url: string; apply_url: string | null; source: string;
           company: string | null; title: string; location: string | null;
           salary: string | null; ats: string | null; }>();
+
+  // Prefer smaller companies — fewer queued jobs = less competition
+  const companyCounts = new Map<string, number>();
+  for (const r of results) {
+    const key = (r.company ?? "").toLowerCase();
+    companyCounts.set(key, (companyCounts.get(key) ?? 0) + 1);
+  }
+  results.sort((a, b) => {
+    const ca = companyCounts.get((a.company ?? "").toLowerCase()) ?? 999;
+    const cb = companyCounts.get((b.company ?? "").toLowerCase()) ?? 999;
+    return ca - cb;
+  });
 
   return results.map((r) => ({
     url: r.url,
