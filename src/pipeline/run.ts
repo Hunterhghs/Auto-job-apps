@@ -63,20 +63,8 @@ export async function runPipeline(
 
   let browser: Browser | null = null;
   try {
-    // 1. SCOUT — always pull fresh from API sources to keep the board full
-    const freshJobs = await scoutCandidates(env, config);
-    console.log(JSON.stringify({ event: "fresh_scout", count: freshJobs.length }));
-
-    // Store all in D1 — populates the Daily Jobs page and queue board
-    for (const job of freshJobs) {
-      await insertJob(env.DB, { ...job, ats: job.ats ?? "unknown", status: "queued" as JobStatus, priority: 0 });
-    }
-
-    // For applying: prefer D1 queued jobs (pre-vetted, known ATS), then fall back to fresh
-    let candidates = await getQueuedJobs(env.DB);
-    if (candidates.length === 0) {
-      candidates = freshJobs;
-    }
+    // Pull from D1 queue board (populated by daily scraper)
+    const candidates = await getQueuedJobs(env.DB);
 
     if (candidates.length === 0) {
       console.log(JSON.stringify({ event: "no_jobs_found" }));
@@ -167,6 +155,30 @@ export async function runPipeline(
   }
 
   return stats;
+}
+
+/**
+ * Daily scraper — runs 2x per day (06:00 and 18:00 UTC). Queries all
+ * 125+ companies across Greenhouse and Ashby, stores matching analyst
+ * jobs in D1. The apply pipeline pulls from this board every 10 min.
+ */
+export async function dailyScrape(env: PipelineEnv): Promise<number> {
+  const config = await getConfig(env.CONFIG);
+  if (config.paused) {
+    console.log(JSON.stringify({ event: "scrape_paused" }));
+    return 0;
+  }
+  const candidates = await scoutCandidates(env, config);
+  let inserted = 0;
+  for (const job of candidates) {
+    const id = await insertJob(env.DB, {
+      ...job, ats: job.ats ?? "unknown",
+      status: "queued" as JobStatus, priority: 0,
+    });
+    if (id > 0) inserted++;
+  }
+  console.log(JSON.stringify({ event: "daily_scrape_done", candidates: candidates.length, stored: inserted }));
+  return inserted;
 }
 
 /**

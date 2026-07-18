@@ -10,11 +10,10 @@
     "head_sampling_rate": 1
   },
 
-  // Scout-and-apply pipeline: fires every 10 min (~144 intervals/day).
-  // Daily cap (default 15) throttles actual applications — most intervals
-  // just check and skip, giving natural 10-30 min spacing between applies.
+  // Apply pipeline: every 10 min pulls from D1 queue.
+  // Daily scraper: 06:00 and 18:00 UTC refreshes the job board.
   "triggers": {
-    "crons": ["*/10 * * * *"]
+    "crons": ["*/10 * * * *", "0 6,18 * * *"]
   },
 
   // Dashboard static site. API routes are handled by the Worker first.

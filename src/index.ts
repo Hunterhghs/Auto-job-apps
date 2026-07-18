@@ -1,5 +1,5 @@
 import { api, type ApiEnv } from "./dashboard/api";
-import { runPipeline } from "./pipeline/run";
+import { runPipeline, dailyScrape } from "./pipeline/run";
 
 interface Env extends ApiEnv {
   ASSETS: Fetcher;
@@ -14,16 +14,30 @@ export default {
     return env.ASSETS.fetch(request);
   },
 
-  async scheduled(_controller, env, ctx): Promise<void> {
+  async scheduled(controller, env, ctx): Promise<void> {
+    const cron = (controller as { cron?: string }).cron ?? "";
     const delayMs = Math.floor(Math.random() * 4 * 60 * 1000);
+
     ctx.waitUntil(
       (async () => {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
-        try {
-          const stats = await runPipeline(env, "cron");
-          console.log(JSON.stringify({ event: "run_complete", ...stats }));
-        } catch (err) {
-          console.log(JSON.stringify({ event: "run_failed", err: String(err) }));
+
+        if (cron.includes("6") || cron.includes("18")) {
+          // Daily scraper — runs at 06:00 and 18:00 UTC
+          try {
+            const count = await dailyScrape(env);
+            console.log(JSON.stringify({ event: "daily_scrape_complete", jobs: count }));
+          } catch (err) {
+            console.log(JSON.stringify({ event: "daily_scrape_failed", err: String(err) }));
+          }
+        } else {
+          // Apply pipeline — every 10 min, pulls from D1 queue
+          try {
+            const stats = await runPipeline(env, "cron");
+            console.log(JSON.stringify({ event: "run_complete", ...stats }));
+          } catch (err) {
+            console.log(JSON.stringify({ event: "run_failed", err: String(err) }));
+          }
         }
       })()
     );
