@@ -152,12 +152,11 @@ api.put("/config", async (c) => {
 });
 
 api.post("/run", async (c) => {
-  // Manual trigger: discovery only (fast, no browser). The cron applies
-  // discovered jobs because browser-based form filling needs the 15-min
-  // CPU window that only cron triggers get.
+  // Manual trigger: runs the full daily scraper to populate the job board
+  // with fresh analyst jobs from 125+ companies.
   c.executionCtx.waitUntil(
-    discoverOnly(c.env).catch((err) =>
-      console.log(JSON.stringify({ event: "manual_discover_failed", err: String(err) }))
+    dailyScrape(c.env).catch((err) =>
+      console.log(JSON.stringify({ event: "manual_scrape_failed", err: String(err) }))
     )
   );
   return c.json({ ok: true, started: true });
